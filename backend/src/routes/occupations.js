@@ -15,9 +15,17 @@ function maskOccupant(row, role) {
 }
 
 router.get('/section/:sectionId/current', requireAuth, async (req,res)=>{
+  if(!/^\d+$/.test(req.params.sectionId)) return res.status(400).json({message:'Cupo inválido'});
+  // El portero solo consulta ocupantes de su parqueadero asignado.
+  let parkingId=null;
+  if(req.auth.role==='PORTERO'){
+    parkingId=(await pool.query('SELECT id_parqueadero_asignado FROM usuarios WHERE id=$1',[req.auth.sub])).rows[0]?.id_parqueadero_asignado;
+    if(!parkingId) return res.status(403).json({message:'Portero sin parqueadero asignado'});
+  }
   const {rows}=await pool.query(
-    `SELECT * FROM ocupaciones WHERE id_seccion=$1 AND estado='ACTIVA' ORDER BY fecha_inicio DESC LIMIT 1`,
-    [req.params.sectionId]
+    `SELECT * FROM ocupaciones WHERE id_seccion=$1 AND estado='ACTIVA' AND ($2::bigint IS NULL OR id_parqueadero=$2)
+     ORDER BY fecha_inicio DESC LIMIT 1`,
+    [req.params.sectionId,parkingId]
   );
   res.json(maskOccupant(rows[0]||null, req.auth.role));
 });

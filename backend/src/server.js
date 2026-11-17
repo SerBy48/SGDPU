@@ -14,6 +14,7 @@ import reportRoutes from './routes/reports.js';
 import incidentRoutes from './routes/incidents.js';
 import occupationRoutes from './routes/occupations.js';
 import { pool } from './db.js';
+import { verifyAccessToken } from './utils/auth.js';
 
 dotenv.config();
 // Sin JWT_SECRET, jsonwebtoken falla en cada login/petición autenticada; mejor
@@ -84,6 +85,17 @@ app.use((err, req, res, _next) => {
 });
 
 process.on('unhandledRejection', err => console.error('Promesa rechazada sin manejar:', err));
+
+// Solo usuarios autenticados reciben eventos en tiempo real: el cliente envía
+// su access token en el handshake (auth.token).
+io.use((socket, next) => {
+  try {
+    socket.data.auth = verifyAccessToken(String(socket.handshake.auth?.token || ''));
+    next();
+  } catch {
+    next(new Error('No autorizado'));
+  }
+});
 
 io.on('connection', socket => {
   socket.on('join:parking', id => socket.join(`parking:${id}`));

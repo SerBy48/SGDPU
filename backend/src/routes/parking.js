@@ -132,7 +132,10 @@ router.post('/:id/movement', requireAuth, requireRole('PORTERO'), async (req,res
       await audit(client,u,`MOVIMIENTO_${type}`,'CUPOS',detalle,req.ip);
       return await snapshot(req.params.id, client);
     });
-    io.emit('parking:update',{parkingId:Number(req.params.id),parking:result});
+    // Solo se avisa qué parqueadero cambió; cada cliente recarga por la API
+    // (autenticada). Antes se difundía el snapshot completo con el SVG del
+    // plano (hasta 1 MB) a todos los clientes en cada movimiento.
+    io.emit('parking:update',{parkingId:Number(req.params.id)});
     res.json(result);
   } catch(e) {
     if(!e.status)console.error(e);res.status(e.status||500).json({message:e.status?e.message:'Error procesando movimiento'});

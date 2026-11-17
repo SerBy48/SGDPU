@@ -6,7 +6,6 @@ import { audit } from '../services/audit.js';
 import { movementRows } from '../utils/movements.js';
 import { sanitizePlano } from '../utils/svgPlano.js';
 import { aplicarPlano, diffPlano, recalcularCupos } from '../services/parkingLayout.js';
-import { snapshot } from './parking.js';
 import { io } from '../server.js';
 
 // La tabla pagina en el cliente; más allá de este tope se deben acotar los filtros.
@@ -19,7 +18,7 @@ router.get('/dashboard', async (_req,res)=>{
   const [u,p,m,i]=await Promise.all([
     pool.query(`SELECT COUNT(*) FILTER(WHERE rol='PORTERO')::int porteros, COUNT(*) FILTER(WHERE rol='CONSULTOR')::int consultores FROM usuarios WHERE estado='ACTIVO'`),
     pool.query(`SELECT COUNT(*)::int parqueaderos,COALESCE(SUM(capacidad_total),0)::int capacidad,COALESCE(SUM(cupos_disponibles),0)::int disponibles FROM parqueaderos WHERE estado='ACTIVO'`),
-    pool.query(`SELECT COUNT(*)::int movimientos FROM movimientos WHERE fecha_hora>=current_date`),
+    pool.query(`SELECT COUNT(*)::int movimientos FROM movimientos WHERE fecha_hora>=date_trunc('day',now() AT TIME ZONE 'America/Bogota') AT TIME ZONE 'America/Bogota'`),
     pool.query(`SELECT COUNT(*)::int incidencias FROM incidencias WHERE estado='ACTIVA'`)
   ]);
   res.json({users:u.rows[0],parking:p.rows[0],today:m.rows[0],incidents:i.rows[0]});
@@ -174,7 +173,7 @@ function datosBasicos(body){
 }
 const fail=(res,e,fallback)=>res.status(e.status||500).json({message:e.status?e.message:fallback,errores:e.errores});
 const actor=async (client,id)=>(await client.query('SELECT * FROM usuarios WHERE id=$1',[id])).rows[0];
-const emitir=async parkingId=>io.emit('parking:update',{parkingId:Number(parkingId),parking:await snapshot(parkingId)});
+const emitir=parkingId=>io.emit('parking:update',{parkingId:Number(parkingId)});
 
 // Revisión previa: valida y sanea el .svg sin guardar nada. El cliente
 // muestra la vista previa saneada y el informe; al confirmar reenvía el

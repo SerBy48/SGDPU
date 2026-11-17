@@ -20,10 +20,14 @@ export default function Parking({user}){
  const load=async()=>{const r=await api.get('/parking/active');setParks(r.data);if(selectedRef.current){const d=await api.get('/parking/'+selectedRef.current.id);setDetail(d.data)}};
  useEffect(()=>{
   load();
-  const s=io(import.meta.env.VITE_API_URL?.replace('/api','')||'http://localhost:4000');
-  s.on('parking:update',e=>{load();if(selectedRef.current?.id===e.parkingId)setDetail(e.parking)});
+  // El socket exige el access token; se lee en cada (re)conexión porque rota.
+  const s=io(import.meta.env.VITE_API_URL?.replace('/api','')||'http://localhost:4000',{auth:cb=>cb({token:localStorage.getItem('sgdpu_access')})});
+  s.on('parking:update',()=>load());
+  // Si el token venció, el sondeo de abajo lo renueva; se reintenta la conexión.
+  let retry=null;
+  s.on('connect_error',()=>{clearTimeout(retry);retry=setTimeout(()=>s.connect(),5000)});
   const t=setInterval(load,5000);
-  return()=>{clearInterval(t);if(typeof s.disconnect==='function')s.disconnect()};
+  return()=>{clearInterval(t);clearTimeout(retry);s.disconnect()};
  },[]);
  useEffect(()=>{if(!selected&&parks.length){const p=user.rol==='PORTERO'?parks.find(x=>x.id===user.id_parqueadero_asignado):parks[0];if(p)setSelected(p)}},[parks,user]);
  useEffect(()=>{
