@@ -103,6 +103,14 @@ router.post('/:id/movement', requireAuth, requireRole('PORTERO'), async (req,res
       // al tipo del cupo aunque el cliente envíe otro valor.
       if(type==='ENTRADA' && tipoVehiculo!==sec.tipo_vehiculo)
         throw Object.assign(new Error(`El cupo ${sec.nombre} es exclusivo para ${sec.tipo_vehiculo==='MOTO'?'motos':'carros'}`),{status:409});
+      // Un mismo vehículo no puede estar en dos cupos a la vez (placa mal
+      // digitada o entrada duplicada).
+      if(type==='ENTRADA'){
+        const dup=(await client.query(`SELECT s.nombre cupo,p2.nombre parqueadero FROM ocupaciones o
+          JOIN secciones s ON s.id=o.id_seccion JOIN parqueaderos p2 ON p2.id=o.id_parqueadero
+          WHERE o.placa=$1 AND o.estado='ACTIVA' LIMIT 1`,[placa])).rows[0];
+        if(dup) throw Object.assign(new Error(`La placa ${placa} ya tiene una entrada activa en el cupo ${dup.cupo} de ${dup.parqueadero}. Registre primero su salida.`),{status:409});
+      }
       if(type==='ENTRADA' && p.cupos_disponibles<=0) throw Object.assign(new Error('El parqueadero está lleno'),{status:409});
       if(type==='ENTRADA' && sec.cupos_disponibles<=0) throw Object.assign(new Error('El cupo seleccionado está ocupado'),{status:409});
       if(type==='SALIDA' && p.cupos_disponibles>=p.capacidad_total) throw Object.assign(new Error('No hay vehículos registrados para retirar'),{status:409});

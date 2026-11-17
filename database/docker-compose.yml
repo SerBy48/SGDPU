@@ -8,7 +8,9 @@ services:
       POSTGRES_USER: sgdpu
       POSTGRES_PASSWORD: sgdpu_dev
     ports:
-      - "5434:5432"
+      # Solo accesible desde este equipo: sin "127.0.0.1" Docker publica el
+      # puerto en todas las interfaces (red local/wifi) con la contraseña de desarrollo.
+      - "127.0.0.1:5434:5432"
     volumes:
       - sgdpu_pgdata:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro

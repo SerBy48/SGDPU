@@ -9,12 +9,27 @@ import { sendVerificationEmail, sendPasswordResetEmail } from '../services/maile
 
 const router = Router();
 
-const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
-// /refresh lo llama el frontend automáticamente (cada ~20 min por sesión), así
-// que el límite es más holgado que el de login, pero evita abuso del endpoint.
-const refreshLimiter = rateLimit({ windowMs: 15 * 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+// Límites de los endpoints públicos. Los usuarios del campus salen a internet
+// por la misma IP pública, así que un cupo pequeño solo por IP (antes: 10
+// peticiones cada 15 min compartidas entre login, registro, verificación y
+// recuperación) dejaba sin acceso a toda la universidad. Ahora:
+//  * authLimiter: tope amplio por IP para el conjunto de endpoints públicos.
+//  * credentialLimiter: tope estricto por IP + correo, que es lo que frena la
+//    fuerza bruta contra una cuenta (además del bloqueo tras 5 intentos).
+const limiterOpts = { windowMs: 15 * 60_000, standardHeaders: true, legacyHeaders: false,
+  message: {message:'Demasiados intentos. Intente de nuevo en unos minutos.'} };
+const authLimiter = rateLimit({ ...limiterOpts, max: 150 });
+const credentialLimiter = rateLimit({ ...limiterOpts, max: 10,
+  keyGenerator: req => `${req.ip}|${String(req.body?.correo||'').toLowerCase().trim().slice(0,180)}` });
+// /refresh lo llama el frontend automáticamente (cada ~20 min por sesión).
+const refreshLimiter = rateLimit({ ...limiterOpts, max: 600 });
 
-const INSTITUTIONAL_EMAIL = /^[^\s@]+@usco\.edu\.co$/i;
+// Solo caracteres habituales en la parte local: evita comillas, ';', '<', '>'
+// y similares, que pueden alterar cómo se interpreta el destinatario al
+// enviar el correo.
+const INSTITUTIONAL_EMAIL = /^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?@usco\.edu\.co$/;
+// Hash de relleno para que el login tarde lo mismo exista o no el correo.
+const DUMMY_HASH = bcrypt.hashSync('sgdpu-dummy-password', 10);
 const VERIFICATION_TOKEN_HOURS = 24;
 const RESET_TOKEN_MINUTES = 15;
 
@@ -46,15 +61,28 @@ router.post('/register', authLimiter, async (req,res) => {
     const hash = await bcrypt.hash(contrasena, 10);
     const rawToken = randomToken();
     await withTransaction(async client => {
-      const {rows} = await client.query(
-        `INSERT INTO usuarios(nombre,apellido,correo,contrasena_hash,rol,estado,email_verificado)
-         VALUES($1,$2,$3,$4,'CONSULTOR','ACTIVO',false) RETURNING id`,
-        [nombre,apellido,correoNorm,hash]
-      );
+      // Si el correo ya existe pero nunca se verificó (enlace vencido, correo
+      // que no llegó, o alguien que registró un correo ajeno), el registro se
+      // rehace con los datos nuevos. Antes esa cuenta quedaba bloqueada para
+      // siempre: no podía iniciar sesión ni volver a registrarse.
+      const prev = (await client.query('SELECT id,email_verificado,rol FROM usuarios WHERE correo=$1 FOR UPDATE',[correoNorm])).rows[0];
+      if (prev && (prev.email_verificado || prev.rol !== 'CONSULTOR')) throw Object.assign(new Error('duplicado'),{code:'23505'});
+      let userId;
+      if (prev) {
+        userId = prev.id;
+        await client.query('UPDATE usuarios SET nombre=$1,apellido=$2,contrasena_hash=$3 WHERE id=$4',[nombre,apellido,hash,userId]);
+        await client.query('UPDATE email_verification_tokens SET usado=true,fecha_uso=now() WHERE id_usuario=$1 AND usado=false',[userId]);
+      } else {
+        userId = (await client.query(
+          `INSERT INTO usuarios(nombre,apellido,correo,contrasena_hash,rol,estado,email_verificado)
+           VALUES($1,$2,$3,$4,'CONSULTOR','ACTIVO',false) RETURNING id`,
+          [nombre,apellido,correoNorm,hash]
+        )).rows[0].id;
+      }
       await client.query(
         `INSERT INTO email_verification_tokens(id_usuario,token_hash,fecha_expiracion)
          VALUES($1,$2,now()+interval '${VERIFICATION_TOKEN_HOURS} hours')`,
-        [rows[0].id, hashToken(rawToken)]
+        [userId, hashToken(rawToken)]
       );
     });
     const link = `${process.env.FRONTEND_URL}/verify-email?token=${rawToken}`;
@@ -67,14 +95,17 @@ router.post('/register', authLimiter, async (req,res) => {
   }
 });
 
-router.post('/login', authLimiter, async (req,res) => {
+router.post('/login', authLimiter, credentialLimiter, async (req,res) => {
   const {correo,contrasena} = req.body;
   const client = await pool.connect();
   try {
     const q = await client.query('SELECT * FROM usuarios WHERE correo=$1',[String(correo||'').toLowerCase().trim()]);
-    if (!q.rowCount) return res.status(401).json({message:'Credenciales inválidas'});
+    if (!q.rowCount) {
+      // Misma respuesta y mismo tiempo que con una contraseña incorrecta.
+      await bcrypt.compare(String(contrasena||''),DUMMY_HASH);
+      return res.status(401).json({message:'Credenciales inválidas'});
+    }
     const u=q.rows[0];
-    if (u.estado!=='ACTIVO') return res.status(403).json({message:'La cuenta está inactiva'});
     if (u.locked_until && new Date(u.locked_until)>new Date()) return res.status(423).json({message:'Cuenta bloqueada temporalmente'});
     const ok=await bcrypt.compare(String(contrasena||''),u.contrasena_hash);
     if (!ok) {
@@ -83,8 +114,9 @@ router.post('/login', authLimiter, async (req,res) => {
       await client.query('UPDATE usuarios SET failed_login_attempts=$1,locked_until=$2 WHERE id=$3',[locked?0:attempts,locked,u.id]);
       return res.status(401).json({message:locked?'Cuenta bloqueada por 15 minutos tras varios intentos fallidos':'Credenciales inválidas'});
     }
-    // Se verifica después de la contraseña para no revelar a terceros qué
-    // correos están registrados pero sin verificar.
+    // Estado y verificación se revisan después de la contraseña para no
+    // revelar a terceros qué correos existen, están inactivos o sin verificar.
+    if (u.estado!=='ACTIVO') return res.status(403).json({message:'La cuenta está inactiva'});
     if (!u.email_verificado) return res.status(403).json({message:'Debe verificar su correo antes de iniciar sesión. Revise su bandeja de entrada.'});
     await client.query('UPDATE usuarios SET failed_login_attempts=0,locked_until=NULL WHERE id=$1',[u.id]);
     const access=signAccessToken(u);
@@ -114,7 +146,7 @@ router.post('/verify-email', authLimiter, async (req,res) => {
   res.json({ok:true});
 });
 
-router.post('/forgot-password', authLimiter, async (req,res) => {
+router.post('/forgot-password', authLimiter, credentialLimiter, async (req,res) => {
   const {correo} = req.body;
   const generic = {message:'Si el correo existe y está verificado, se envió un enlace de recuperación.'};
   const correoNorm = String(correo||'').toLowerCase().trim();
@@ -123,13 +155,19 @@ router.post('/forgot-password', authLimiter, async (req,res) => {
   const u = rows[0];
   if (u && u.email_verificado && u.estado==='ACTIVO') {
     const rawToken = randomToken();
-    await pool.query(
-      `INSERT INTO password_reset_tokens(id_usuario,token_hash,fecha_expiracion)
-       VALUES($1,$2,now()+interval '${RESET_TOKEN_MINUTES} minutes')`,
-      [u.id, hashToken(rawToken)]
-    );
+    await withTransaction(async client => {
+      // Solo queda vigente el enlace más reciente.
+      await client.query('UPDATE password_reset_tokens SET usado=true,fecha_uso=now() WHERE id_usuario=$1 AND usado=false',[u.id]);
+      await client.query(
+        `INSERT INTO password_reset_tokens(id_usuario,token_hash,fecha_expiracion)
+         VALUES($1,$2,now()+interval '${RESET_TOKEN_MINUTES} minutes')`,
+        [u.id, hashToken(rawToken)]
+      );
+    });
     const link = `${process.env.FRONTEND_URL}/reset-password?token=${rawToken}`;
-    await sendPasswordResetEmail(correoNorm, link);
+    // Sin await: si se esperara el envío, el tiempo de respuesta delataría
+    // qué correos tienen cuenta. El mailer registra sus propios errores.
+    sendPasswordResetEmail(correoNorm, link);
   }
   res.json(generic);
 });

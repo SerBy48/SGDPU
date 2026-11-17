@@ -1,5 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { pool } from './db.js';
+// Estas cuentas usan contraseñas públicas (están en el README): solo para desarrollo.
+if(process.env.NODE_ENV==='production'){
+ console.error('npm run seed crea cuentas de demostración con contraseñas conocidas; no se ejecuta con NODE_ENV=production.');
+ process.exit(1);
+}
 const users=[
  ['Administrador','SGDPU','admin@sgdpu.local','Admin123!','ADMIN',null],
  ['Carlos','Portero','portero@sgdpu.local','Portero123!','PORTERO',1],

@@ -44,7 +44,7 @@ router.get('/', requireAuth, requireRole('ADMIN'), async (req,res)=>{
      FROM ocupaciones o
      JOIN parqueaderos p ON p.id=o.id_parqueadero
      JOIN secciones s ON s.id=o.id_seccion
-     ${where} ORDER BY o.fecha_inicio DESC`,
+     ${where} ORDER BY o.fecha_inicio DESC LIMIT 1000`,
     params
   );
   res.json(rows);
