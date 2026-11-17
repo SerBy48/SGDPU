@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../utils/router.js';
 import bcrypt from 'bcryptjs';
 import { pool, withTransaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -34,20 +34,35 @@ router.get('/porteros', async (_req,res)=>{
 });
 
 router.post('/porteros', async (req,res)=>{
-  const {nombre,apellido,correo,contrasena,id_parqueadero_asignado}=req.body;
+  const {id_parqueadero_asignado}=req.body;
+  const nombre=String(req.body.nombre||'').trim(), apellido=String(req.body.apellido||'').trim();
+  const correo=String(req.body.correo||'').toLowerCase().trim();
+  const contrasena=typeof req.body.contrasena==='string'?req.body.contrasena:'';
   if(!nombre||!apellido||!correo||!contrasena||!id_parqueadero_asignado) return res.status(400).json({message:'Complete todos los campos'});
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)||correo.length>180) return res.status(400).json({message:'Correo inválido'});
+  if(contrasena.length<8||contrasena.length>72) return res.status(400).json({message:'La contraseña debe tener entre 8 y 72 caracteres'});
+  if(nombre.length>80||apellido.length>80) return res.status(400).json({message:'Nombre y apellido no pueden superar 80 caracteres'});
   try {
     const hash=await bcrypt.hash(contrasena,10);
     const result=await withTransaction(async client=>{
-      const r=await client.query(`INSERT INTO usuarios(nombre,apellido,correo,contrasena_hash,rol,estado,id_parqueadero_asignado)
-        VALUES($1,$2,$3,$4,'PORTERO','ACTIVO',$5) RETURNING id,nombre,apellido,correo,rol,estado,id_parqueadero_asignado`,
-        [nombre,apellido,correo.toLowerCase(),hash,id_parqueadero_asignado]);
+      const p=(await client.query('SELECT id FROM parqueaderos WHERE id=$1',[id_parqueadero_asignado])).rows[0];
+      if(!p) throw Object.assign(new Error('Parqueadero no encontrado'),{status:404});
+      // La cuenta la crea el administrador: se marca como verificada, de lo
+      // contrario el login la rechaza (no existe flujo de verificación para porteros).
+      const r=await client.query(`INSERT INTO usuarios(nombre,apellido,correo,contrasena_hash,rol,estado,id_parqueadero_asignado,email_verificado)
+        VALUES($1,$2,$3,$4,'PORTERO','ACTIVO',$5,true) RETURNING id,nombre,apellido,correo,rol,estado,id_parqueadero_asignado`,
+        [nombre,apellido,correo,hash,id_parqueadero_asignado]);
       const u=(await client.query('SELECT * FROM usuarios WHERE id=$1',[req.auth.sub])).rows[0];
       await audit(client,u,'CREAR_PORTERO','ADMINISTRACIÓN',`Creó al portero ${correo}`,req.ip);
       return r.rows[0];
     });
     res.status(201).json(result);
-  } catch(e){res.status(e.code==='23505'?409:500).json({message:e.code==='23505'?'Correo ya registrado':'No fue posible crear el portero'});}
+  } catch(e){
+    if(e.code==='23505') return res.status(409).json({message:'Correo ya registrado'});
+    if(e.status) return res.status(e.status).json({message:e.message});
+    console.error('Error creando portero:',e);
+    res.status(500).json({message:'No fue posible crear el portero'});
+  }
 });
 
 router.patch('/porteros/:id/status', async (req,res)=>{
@@ -80,7 +95,7 @@ router.patch('/porteros/:id/reassign', async (req,res)=>{
       return r.rows[0];
     });
     res.json(result);
-  } catch(e){res.status(e.status||500).json({message:e.message||'No fue posible reasignar el portero'});}
+  } catch(e){if(!e.status)console.error(e);res.status(e.status||500).json({message:e.status?e.message:'No fue posible reasignar el portero'});}
 });
 
 router.delete('/porteros/:id', async (req,res)=>{
@@ -92,6 +107,11 @@ router.delete('/porteros/:id', async (req,res)=>{
       if(hist) throw Object.assign(new Error('No es posible eliminar este portero: tiene movimientos históricos registrados (son inmutables). Desactívelo en su lugar.'),{status:409});
       const inc=(await client.query('SELECT 1 FROM incidencias WHERE id_usuario=$1 LIMIT 1',[p.id])).rowCount;
       if(inc) throw Object.assign(new Error('No es posible eliminar este portero: tiene incidencias registradas. Desactívelo en su lugar.'),{status:409});
+      // auditoria.id_usuario es ON DELETE SET NULL, pero la auditoría es
+      // inmutable (trigger trg_auditoria_immutable): ese UPDATE implícito falla.
+      // Un portero que ya inició sesión tiene registros de auditoría.
+      const aud=(await client.query('SELECT 1 FROM auditoria WHERE id_usuario=$1 LIMIT 1',[p.id])).rowCount;
+      if(aud) throw Object.assign(new Error('No es posible eliminar este portero: tiene registros de auditoría (son inmutables). Desactívelo en su lugar.'),{status:409});
       await client.query('DELETE FROM refresh_tokens WHERE id_usuario=$1',[p.id]);
       await client.query('DELETE FROM usuarios WHERE id=$1',[p.id]);
       const u=(await client.query('SELECT * FROM usuarios WHERE id=$1',[req.auth.sub])).rows[0];
@@ -99,7 +119,7 @@ router.delete('/porteros/:id', async (req,res)=>{
       return {ok:true};
     });
     res.json(result);
-  } catch(e){res.status(e.status||500).json({message:e.message||'No fue posible eliminar el portero'});}
+  } catch(e){if(!e.status)console.error(e);res.status(e.status||500).json({message:e.status?e.message:'No fue posible eliminar el portero'});}
 });
 
 router.get('/auditoria', async (req,res)=>{
@@ -297,7 +317,7 @@ router.delete('/parkings/:id', async (req,res)=>{
       return {ok:true};
     });
     res.json(result);
-  } catch(e){res.status(e.status||500).json({message:e.message||'No fue posible eliminar el parqueadero'});}
+  } catch(e){if(!e.status)console.error(e);res.status(e.status||500).json({message:e.status?e.message:'No fue posible eliminar el parqueadero'});}
 });
 
 router.get('/sedes', async (_req,res)=>res.json((await pool.query('SELECT * FROM sedes ORDER BY nombre')).rows));

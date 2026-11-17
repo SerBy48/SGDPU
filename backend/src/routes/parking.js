@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../utils/router.js';
 import { pool, withTransaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { audit } from '../services/audit.js';
@@ -58,6 +58,7 @@ router.get('/active', requireAuth, async (_req,res)=>{
 });
 
 router.get('/:id', requireAuth, async (req,res)=>{
+  if(!/^\d+$/.test(req.params.id)) return res.status(400).json({message:'Parqueadero inválido'});
   const p=await snapshot(req.params.id);
   if(!p) return res.status(404).json({message:'Parqueadero no encontrado'});
   res.json(p);
@@ -82,6 +83,10 @@ router.post('/:id/movement', requireAuth, requireRole('PORTERO'), async (req,res
   }
   if(nombreOcupante.length>160 || codigoCarne.length>40 || placa.length>20)
     return res.status(400).json({message:'Alguno de los datos del ocupante excede la longitud permitida'});
+  if(!/^\d+$/.test(String(sectionId??'')) || !/^\d+$/.test(req.params.id))
+    return res.status(400).json({message:'Cupo o parqueadero inválido'});
+  if(observacion!=null && (typeof observacion!=='string' || observacion.length>500))
+    return res.status(400).json({message:'La observación no puede superar 500 caracteres'});
   try {
     const result=await withTransaction(async client=>{
       const u=(await client.query('SELECT * FROM usuarios WHERE id=$1 FOR UPDATE',[req.auth.sub])).rows[0];
@@ -130,7 +135,7 @@ router.post('/:id/movement', requireAuth, requireRole('PORTERO'), async (req,res
     io.emit('parking:update',{parkingId:Number(req.params.id),parking:result});
     res.json(result);
   } catch(e) {
-    res.status(e.status||500).json({message:e.message||'Error procesando movimiento'});
+    if(!e.status)console.error(e);res.status(e.status||500).json({message:e.status?e.message:'Error procesando movimiento'});
   }
 });
 
