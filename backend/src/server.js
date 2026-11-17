@@ -23,7 +23,25 @@ if (!process.env.JWT_SECRET) {
   console.error('Falta la variable de entorno JWT_SECRET (ver backend/.env.example).');
   process.exit(1);
 }
+// En producción no se acepta el secreto de ejemplo ni uno corto: con él
+// cualquiera podría firmar tokens de administrador.
+const weakSecret = process.env.JWT_SECRET.length < 32 || process.env.JWT_SECRET.startsWith('change_this');
+if (weakSecret && process.env.NODE_ENV === 'production') {
+  console.error('JWT_SECRET es débil o es el valor de ejemplo. Defina uno aleatorio de al menos 32 caracteres (ver backend/.env.example).');
+  process.exit(1);
+} else if (weakSecret) {
+  console.warn('Aviso: JWT_SECRET es débil o es el valor de ejemplo; cámbielo antes de desplegar.');
+}
 const app = express();
+// Detrás de un proxy inverso (nginx, etc.) definir TRUST_PROXY (p. ej. "1")
+// para que req.ip sea la IP real del cliente en auditoría y rate limiting. No
+// se activa por defecto: sin proxy, permitiría falsificar la IP con
+// X-Forwarded-For.
+if (process.env.TRUST_PROXY) {
+  const tp = process.env.TRUST_PROXY;
+  app.set('trust proxy', /^\d+$/.test(tp) ? Number(tp) : tp);
+}
+app.disable('x-powered-by');
 const server = http.createServer(app);
 
 export const io = new Server(server, {
@@ -33,7 +51,21 @@ export const io = new Server(server, {
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
 app.use(express.json({ limit: '2mb' }));
-app.use(rateLimit({ windowMs: 60_000, max: 180 }));
+// Límite general por usuario autenticado (o por IP si no hay sesión). Por IP
+// solamente, todos los usuarios del campus —que salen por la misma IP
+// pública— compartían un único cupo de 180 peticiones/minuto y, con el sondeo
+// de disponibilidad cada 5 s, unos pocos clientes lo agotaban para todos.
+app.use(rateLimit({
+  windowMs: 60_000, max: 300, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: req => {
+    const h = req.headers.authorization || '';
+    if (h.startsWith('Bearer ')) {
+      try { return `u:${verifyAccessToken(h.slice(7)).sub}`; } catch { /* token inválido: se limita por IP */ }
+    }
+    return req.ip;
+  },
+  message: {message:'Demasiadas peticiones. Intente de nuevo en un momento.'}
+}));
 
 app.get('/api/health', async (_req,res) => {
   try {
@@ -59,7 +91,9 @@ const swaggerSpec = swaggerJsdoc({
   },
   apis:[]
 });
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// La documentación interactiva no se publica en producción.
+if (process.env.NODE_ENV !== 'production')
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Errores no controlados de las rutas (ver utils/router.js). Los errores de
 // negocio llevan `status`; los de PostgreSQL más comunes por datos del cliente
@@ -75,11 +109,12 @@ const PG_CLIENT_ERRORS = {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   if (res.headersSent) return res.end();
+  // Errores del parser de JSON: llevan `status`, pero su mensaje es interno.
+  if (err.type === 'entity.too.large') return res.status(413).json({message:'La petición excede el tamaño permitido'});
+  if (err.type) return res.status(400).json({message:'Cuerpo de la petición inválido'});
   if (err.status) return res.status(err.status).json({message:err.message, errores:err.errores});
   const pgErr = PG_CLIENT_ERRORS[err.code];
   if (pgErr) return res.status(pgErr[0]).json({message:pgErr[1]});
-  if (err.type === 'entity.too.large') return res.status(413).json({message:'La petición excede el tamaño permitido'});
-  if (err.type === 'entity.parse.failed') return res.status(400).json({message:'JSON inválido'});
   console.error(`[${req.method} ${req.originalUrl}]`, err);
   res.status(500).json({message:'Error interno del servidor'});
 });

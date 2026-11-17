@@ -5,12 +5,12 @@ export function signAccessToken(user) {
   return jwt.sign(
     { sub: user.id, role: user.rol, name: `${user.nombre} ${user.apellido}` },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES || '20m' }
+    { expiresIn: process.env.JWT_EXPIRES || '20m', algorithm: 'HS256' }
   );
 }
 
 export function verifyAccessToken(token) {
-  return jwt.verify(token, process.env.JWT_SECRET);
+  return jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
 }
 
 export function refreshDays() {
