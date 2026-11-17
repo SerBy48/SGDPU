@@ -1,0 +1,162 @@
+<svg class="plano-svg" viewBox="0 0 700 460" xmlns="http://www.w3.org/2000/svg">
+            <!-- Background -->
+            <rect width="700" height="460" fill="#f0ece6"/>
+            <!-- Road -->
+            <rect x="0" y="200" width="700" height="60" fill="#d4cfc9"/>
+            <line x1="0" y1="230" x2="700" y2="230" stroke="#b0a8a0" stroke-width="1.5" stroke-dasharray="20,15"/>
+            <!-- Entrance -->
+            <rect x="0" y="195" width="40" height="70" fill="#c9973a" rx="4"/>
+            <text x="20" y="233" fill="#fff" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="700">ENT.</text>
+
+            <!-- SECTION A LABEL -->
+            <text x="85" y="30" fill="#8a7f7a" font-size="11" font-family="DM Sans,sans-serif" font-weight="600" text-transform="uppercase">SECCIÓN A</text>
+            <line x1="70" y1="35" x2="360" y2="35" stroke="#d4cfc9" stroke-width="1.5"/>
+
+            <!-- ROW A top -->
+            <g class="cupo free" id="cupo-A01" onclick="selectCupo('A01', 'free')">
+              <rect x="75" y="45" width="52" height="30" rx="5"/>
+              <text x="101" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-01</text>
+            </g>
+            <g class="cupo occ" id="cupo-A02" onclick="selectCupo('A02', 'occ')">
+              <rect x="137" y="45" width="52" height="30" rx="5"/>
+              <text x="163" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-02</text>
+            </g>
+            <g class="cupo occ" id="cupo-A03" onclick="selectCupo('A03', 'occ')">
+              <rect x="199" y="45" width="52" height="30" rx="5"/>
+              <text x="225" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-03</text>
+            </g>
+            <g class="cupo free" id="cupo-A04" onclick="selectCupo('A04', 'free')">
+              <rect x="261" y="45" width="52" height="30" rx="5"/>
+              <text x="287" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-04</text>
+            </g>
+            <g class="cupo free" id="cupo-A05" onclick="selectCupo('A05', 'free')">
+              <rect x="323" y="45" width="52" height="30" rx="5"/>
+              <text x="349" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-05</text>
+            </g>
+
+            <!-- ROW A bottom -->
+            <g class="cupo occ" id="cupo-A06" onclick="selectCupo('A06', 'occ')">
+              <rect x="75" y="145" width="52" height="30" rx="5"/>
+              <text x="101" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-06</text>
+            </g>
+            <g class="cupo occ" id="cupo-A07" onclick="selectCupo('A07', 'occ')">
+              <rect x="137" y="145" width="52" height="30" rx="5"/>
+              <text x="163" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-07</text>
+            </g>
+            <g class="cupo free" id="cupo-A08" onclick="selectCupo('A08', 'free')">
+              <rect x="199" y="145" width="52" height="30" rx="5"/>
+              <text x="225" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-08</text>
+            </g>
+            <g class="cupo occ" id="cupo-A09" onclick="selectCupo('A09', 'occ')">
+              <rect x="261" y="145" width="52" height="30" rx="5"/>
+              <text x="287" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-09</text>
+            </g>
+            <g class="cupo free" id="cupo-A10" onclick="selectCupo('A10', 'free')">
+              <rect x="323" y="145" width="52" height="30" rx="5"/>
+              <text x="349" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">A-10</text>
+            </g>
+
+            <!-- SECTION B LABEL -->
+            <text x="415" y="30" fill="#8a7f7a" font-size="11" font-family="DM Sans,sans-serif" font-weight="600">SECCIÓN B</text>
+            <line x1="400" y1="35" x2="680" y2="35" stroke="#d4cfc9" stroke-width="1.5"/>
+
+            <!-- ROW B top -->
+            <g class="cupo free" id="cupo-B01" onclick="selectCupo('B01', 'free')">
+              <rect x="405" y="45" width="52" height="30" rx="5"/>
+              <text x="431" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">B-01</text>
+            </g>
+            <g class="cupo occ" id="cupo-B02" onclick="selectCupo('B02', 'occ')">
+              <rect x="467" y="45" width="52" height="30" rx="5"/>
+              <text x="493" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">B-02</text>
+            </g>
+            <g class="cupo occ" id="cupo-B03" onclick="selectCupo('B03', 'occ')">
+              <rect x="529" y="45" width="52" height="30" rx="5"/>
+              <text x="555" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">B-03</text>
+            </g>
+            <g class="cupo free" id="cupo-B04" onclick="selectCupo('B04', 'free')">
+              <rect x="591" y="45" width="52" height="30" rx="5"/>
+              <text x="617" y="65" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">B-04</text>
+            </g>
+
+            <!-- ROW B bottom -->
+            <g class="cupo occ" id="cupo-B05" onclick="selectCupo('B05', 'occ')">
+              <rect x="405" y="145" width="52" height="30" rx="5"/>
+              <text x="431" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">B-05</text>
+            </g>
+            <g class="cupo free" id="cupo-B06" onclick="selectCupo('B06', 'free')">
+              <rect x="467" y="145" width="52" height="30" rx="5"/>
+              <text x="493" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">B-06</text>
+            </g>
+            <g class="cupo occ" id="cupo-B07" onclick="selectCupo('B07', 'occ')">
+              <rect x="529" y="145" width="52" height="30" rx="5"/>
+              <text x="555" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">B-07</text>
+            </g>
+            <g class="cupo free" id="cupo-B08" onclick="selectCupo('B08', 'free')">
+              <rect x="591" y="145" width="52" height="30" rx="5"/>
+              <text x="617" y="165" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">B-08</text>
+            </g>
+
+            <!-- SECTION C LABEL -->
+            <text x="85" y="285" fill="#8a7f7a" font-size="11" font-family="DM Sans,sans-serif" font-weight="600">SECCIÓN C</text>
+            <line x1="70" y1="290" x2="680" y2="290" stroke="#d4cfc9" stroke-width="1.5"/>
+
+            <!-- ROW C -->
+            <g class="cupo occ" id="cupo-C01" onclick="selectCupo('C01', 'occ')">
+              <rect x="75" y="300" width="52" height="30" rx="5"/>
+              <text x="101" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-01</text>
+            </g>
+            <g class="cupo occ" id="cupo-C02" onclick="selectCupo('C02', 'occ')">
+              <rect x="137" y="300" width="52" height="30" rx="5"/>
+              <text x="163" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-02</text>
+            </g>
+            <g class="cupo free" id="cupo-C03" onclick="selectCupo('C03', 'free')">
+              <rect x="199" y="300" width="52" height="30" rx="5"/>
+              <text x="225" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-03</text>
+            </g>
+            <g class="cupo free" id="cupo-C04" onclick="selectCupo('C04', 'free')">
+              <rect x="261" y="300" width="52" height="30" rx="5"/>
+              <text x="287" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-04</text>
+            </g>
+            <g class="cupo occ" id="cupo-C05" onclick="selectCupo('C05', 'occ')">
+              <rect x="323" y="300" width="52" height="30" rx="5"/>
+              <text x="349" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-05</text>
+            </g>
+            <g class="cupo free" id="cupo-C06" onclick="selectCupo('C06', 'free')">
+              <rect x="385" y="300" width="52" height="30" rx="5"/>
+              <text x="411" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-06</text>
+            </g>
+            <g class="cupo occ" id="cupo-C07" onclick="selectCupo('C07', 'occ')">
+              <rect x="447" y="300" width="52" height="30" rx="5"/>
+              <text x="473" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-07</text>
+            </g>
+            <g class="cupo free" id="cupo-C08" onclick="selectCupo('C08', 'free')">
+              <rect x="509" y="300" width="52" height="30" rx="5"/>
+              <text x="535" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-08</text>
+            </g>
+            <g class="cupo occ" id="cupo-C09" onclick="selectCupo('C09', 'occ')">
+              <rect x="571" y="300" width="52" height="30" rx="5"/>
+              <text x="597" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-09</text>
+            </g>
+            <g class="cupo free" id="cupo-C10" onclick="selectCupo('C10', 'free')">
+              <rect x="633" y="300" width="52" height="30" rx="5"/>
+              <text x="659" y="320" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-10</text>
+            </g>
+
+            <!-- ROW C bottom -->
+            <g class="cupo occ" id="cupo-C11" onclick="selectCupo('C11', 'occ')">
+              <rect x="75" y="400" width="52" height="30" rx="5"/>
+              <text x="101" y="420" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-11</text>
+            </g>
+            <g class="cupo free" id="cupo-C12" onclick="selectCupo('C12', 'free')">
+              <rect x="137" y="400" width="52" height="30" rx="5"/>
+              <text x="163" y="420" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-12</text>
+            </g>
+            <g class="cupo occ" id="cupo-C13" onclick="selectCupo('C13', 'occ')">
+              <rect x="199" y="400" width="52" height="30" rx="5"/>
+              <text x="225" y="420" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-13</text>
+            </g>
+            <g class="cupo free" id="cupo-C14" onclick="selectCupo('C14', 'free')">
+              <rect x="261" y="400" width="52" height="30" rx="5"/>
+              <text x="287" y="420" fill="white" font-size="9" text-anchor="middle" font-family="DM Sans,sans-serif" font-weight="600">C-14</text>
+            </g>
+          </svg>

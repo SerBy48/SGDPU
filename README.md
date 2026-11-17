@@ -1,0 +1,148 @@
+# SGDPU — Sistema para la Gestión de Disponibilidad de Parqueaderos USCO
+
+Implementación web del SGDPU basada en `SGDPU_Requerimientos.docx`, la matriz de requerimientos y los prototipos HTML entregados.
+
+## Arquitectura
+
+- **Frontend:** React + Vite + React Router + Recharts + Socket.IO Client.
+- **Backend:** Node.js + Express + PostgreSQL + Socket.IO + JWT/refresh tokens.
+- **Base de datos:** PostgreSQL independiente, con script SQL y Docker Compose.
+- **Documentación API:** Swagger/OpenAPI en `/api/docs`.
+
+La documentación de requisitos establece React.js, Node.js/Express.js, PostgreSQL, WebSockets/SSE y JWT con refresh tokens rotativos como tecnologías base. También exige actualización de cupos en máximo 5 segundos, transacciones atómicas e inmutabilidad de históricos.
+
+## Estructura
+
+```text
+SGDPU/
+├── frontend/       # Aplicación React
+├── backend/        # API REST + tiempo real
+├── database/       # PostgreSQL, esquema, funciones y seed
+├── docs/
+└── README.md
+```
+
+## Requisitos
+
+- Node.js 20+
+- npm 10+
+- Docker Desktop (recomendado para PostgreSQL) o PostgreSQL 15+
+- Git opcional
+
+## 1. Base de datos
+
+```bash
+cd database
+docker compose up -d
+```
+
+La base queda disponible en:
+
+- Host: `localhost`
+- Puerto: `5434` (remapeado desde el 5432 del contenedor porque el host ya tenía instalaciones nativas de PostgreSQL ocupando el 5432 y el 5433; ajustar en `docker-compose.yml`/`.env` si no aplica en tu equipo)
+- Base: `sgdpu`
+- Usuario: `sgdpu`
+- Contraseña: `sgdpu_dev`
+
+El contenedor ejecuta automáticamente `schema.sql` y `seed.sql`.
+
+Si ya existe una instancia PostgreSQL, se pueden ejecutar ambos archivos manualmente:
+
+```bash
+psql -U postgres -f schema.sql
+psql -U postgres -d sgdpu -f seed.sql
+```
+
+## 2. Backend
+
+```bash
+cd backend
+copy .env.example .env
+npm install
+npm run seed
+npm run dev
+```
+
+En Linux/macOS:
+
+```bash
+cp .env.example .env
+npm install
+npm run seed
+npm run dev
+```
+
+`npm run seed` genera hashes bcrypt reales y crea/actualiza las tres cuentas locales de demostración.
+
+En Linux/macOS:
+
+```bash
+cp .env.example .env
+npm install
+npm run dev
+```
+
+API: http://localhost:4000  
+Swagger: http://localhost:4000/api/docs
+
+## 3. Frontend
+
+En otra terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Aplicación: http://localhost:5173
+
+## Credenciales de demostración
+
+> Son cuentas locales de desarrollo creadas por `seed.sql`. Cambiarlas antes de cualquier despliegue real.
+
+| Rol | Correo | Contraseña |
+|---|---|---|
+| Administrador | admin@sgdpu.local | Admin123! |
+| Portero | portero@sgdpu.local | Portero123! |
+| Consultor | consultor@sgdpu.local | Consultor123! |
+
+El registro público siempre crea una cuenta **CONSULTOR**.
+
+## Flujo recomendado de prueba
+
+1. Iniciar PostgreSQL.
+2. Levantar backend.
+3. Levantar frontend.
+4. Entrar como administrador.
+5. Revisar Parqueaderos, Porteros, Estadísticas, Reportes, Auditoría e Incidencias.
+6. Abrir otra ventana como Portero y probar selección de cupo + entrada/salida.
+7. Abrir otra ventana como Consultor y comprobar que el estado cambia sin recargar.
+
+## Tiempo real
+
+El backend emite `parking:update` por Socket.IO después de movimientos y de cambios de cupos o plano hechos por el administrador. El frontend también realiza una sincronización de respaldo cada 5 segundos.
+
+## Seguridad e históricos
+
+- Contraseñas con bcrypt.
+- Access JWT de corta duración.
+- Refresh tokens persistidos como hash y rotados.
+- Revocación de refresh token en logout.
+- Bloqueo tras intentos fallidos.
+- Endpoints de movimientos/auditoría/reportes históricos no tienen PUT/DELETE.
+- La capacidad solo cambia con motivo registrado en auditoría: inhabilitando cupos temporalmente o subiendo un nuevo plano .svg (revisado y saneado antes de guardarse).
+- Las operaciones de entrada/salida usan transacciones y bloqueo de fila en PostgreSQL.
+- La base incluye triggers que rechazan UPDATE/DELETE de movimientos y auditoría.
+
+## Exportación
+
+El módulo de Reportes incluye exportación del historial activo a PDF y Excel desde el backend.
+
+## Nota sobre SVG
+
+Se incluye `frontend/public/parking.svg` como plano demostrativo inspirado en el prototipo. En una instalación real, el administrador puede reemplazarlo por el SVG correspondiente al parqueadero y configurar las secciones/coordenadas mediante el módulo administrativo.
+
+## Alcance
+
+Esta versión implementa el aplicativo web solicitado. La documentación original contempla también una aplicación móvil, pero la solicitud actual se concentra en el aplicativo web, backend y base de datos.

@@ -1,0 +1,1 @@
+export default function NotFound(){return <div className="content"><h1 className="page-title">Página no encontrada</h1><p className="page-sub">La ruta solicitada no existe o no está disponible para su rol.</p></div>}
