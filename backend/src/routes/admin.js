@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { pool, withTransaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { audit } from '../services/audit.js';
-import { movementRows } from '../utils/movements.js';
+import { TZ, movementRows } from '../utils/movements.js';
 import { sanitizePlano } from '../utils/svgPlano.js';
 import { aplicarPlano, diffPlano, recalcularCupos } from '../services/parkingLayout.js';
 import { io } from '../server.js';
@@ -127,10 +127,16 @@ router.get('/auditoria', async (req,res)=>{
   if(usuario){params.push(`%${usuario}%`);where.push(`(u.correo ILIKE $${params.length} OR u.nombre ILIKE $${params.length})`);}
   if(accion){params.push(`%${accion}%`);where.push(`a.accion ILIKE $${params.length}`);}
   if(rol){params.push(rol);where.push(`a.rol_usuario=$${params.length}`);}
-  if(desde){params.push(desde);where.push(`a.fecha_hora >= $${params.length}`);}
-  if(hasta){params.push(hasta);where.push(`a.fecha_hora < ($${params.length}::date + interval '1 day')`);}
-  if(year){params.push(Number(year));where.push(`EXTRACT(YEAR FROM a.fecha_hora)=$${params.length}`);}
-  if(month){params.push(Number(month));where.push(`EXTRACT(MONTH FROM a.fecha_hora)=$${params.length}`);}
+  // Fechas en hora de Neiva/Bogotá (PostgreSQL corre en UTC): sin convertir,
+  // una acción de las 8 p. m. quedaba en el día (o mes) siguiente y el filtro
+  // la dejaba por fuera. Mismo criterio que el historial (utils/movements.js).
+  const local=`(a.fecha_hora AT TIME ZONE '${TZ}')`;
+  const isDate=v=>/^\d{4}-\d{2}-\d{2}$/.test(String(v));
+  if((desde&&!isDate(desde))||(hasta&&!isDate(hasta))) return res.status(400).json({message:'Las fechas deben tener formato AAAA-MM-DD'});
+  if(desde){params.push(desde);where.push(`${local}::date >= $${params.length}::date`);}
+  if(hasta){params.push(hasta);where.push(`${local}::date <= $${params.length}::date`);}
+  if(Number(year)){params.push(Number(year));where.push(`EXTRACT(YEAR FROM ${local})=$${params.length}`);}
+  if(Number(month)){params.push(Number(month));where.push(`EXTRACT(MONTH FROM ${local})=$${params.length}`);}
   const q=`SELECT a.*,COALESCE(u.nombre||' '||u.apellido,'Sistema') usuario
            FROM auditoria a LEFT JOIN usuarios u ON u.id=a.id_usuario
            ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY a.fecha_hora DESC LIMIT 500`;
