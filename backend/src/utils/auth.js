@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
 
 export function signAccessToken(user) {
   return jwt.sign(
@@ -14,28 +13,21 @@ export function verifyAccessToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
 }
 
-export function randomRefreshToken() {
-  return randomToken();
+export function refreshDays() {
+  const d = Number(process.env.REFRESH_DAYS);
+  return Number.isInteger(d) && d > 0 && d <= 90 ? d : 7;
 }
 
-export async function hashRefreshToken(token) {
-  return hashToken(token);
-}
-
-export async function compareRefreshToken(token, hash) {
-  return compareToken(token, hash);
-}
-
-// Genérico: mismo esquema de token aleatorio + hash bcrypt usado por
-// refresh tokens, verificación de correo y recuperación de contraseña.
+// Tokens opacos (refresh, verificación de correo, recuperación de contraseña):
+// 384 bits aleatorios. Al tener entropía alta no necesitan un hash lento como
+// bcrypt; SHA-256 basta y, al ser determinista, permite buscar el token por
+// igualdad (WHERE token_hash=$1, con índice) en lugar de comparar con bcrypt
+// contra TODOS los tokens vigentes en cada petición, lo que crecía sin límite
+// y permitía saturar el servidor con peticiones a /auth/refresh.
 export function randomToken() {
   return crypto.randomBytes(48).toString('hex');
 }
 
-export async function hashToken(token) {
-  return bcrypt.hash(token, 10);
-}
-
-export async function compareToken(token, hash) {
-  return bcrypt.compare(token, hash);
+export function hashToken(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
 }

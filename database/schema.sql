@@ -184,6 +184,10 @@ CREATE INDEX idx_ocupaciones_seccion_estado ON ocupaciones(id_seccion, estado);
 CREATE INDEX idx_ocupaciones_parqueadero_fecha ON ocupaciones(id_parqueadero, fecha_inicio);
 CREATE INDEX idx_evt_usuario ON email_verification_tokens(id_usuario);
 CREATE INDEX idx_prt_usuario ON password_reset_tokens(id_usuario);
+CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+CREATE INDEX idx_refresh_tokens_usuario ON refresh_tokens(id_usuario);
+CREATE INDEX idx_evt_hash ON email_verification_tokens(token_hash);
+CREATE INDEX idx_prt_hash ON password_reset_tokens(token_hash);
 
 CREATE OR REPLACE FUNCTION prevent_historical_mutation()
 RETURNS trigger AS $$

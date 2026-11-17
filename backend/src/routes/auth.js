@@ -1,8 +1,8 @@
-import { Router } from 'express';
+import { Router } from '../utils/router.js';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { pool, withTransaction } from '../db.js';
-import { signAccessToken, randomToken, hashToken, compareToken, randomRefreshToken, hashRefreshToken, compareRefreshToken } from '../utils/auth.js';
+import { signAccessToken, randomToken, hashToken, refreshDays } from '../utils/auth.js';
 import { requireAuth } from '../middleware/auth.js';
 import { audit } from '../services/audit.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../services/mailer.js';
@@ -10,6 +10,9 @@ import { sendVerificationEmail, sendPasswordResetEmail } from '../services/maile
 const router = Router();
 
 const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
+// /refresh lo llama el frontend automáticamente (cada ~20 min por sesión), así
+// que el límite es más holgado que el de login, pero evita abuso del endpoint.
+const refreshLimiter = rateLimit({ windowMs: 15 * 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
 
 const INSTITUTIONAL_EMAIL = /^[^\s@]+@usco\.edu\.co$/i;
 const VERIFICATION_TOKEN_HOURS = 24;
@@ -19,12 +22,25 @@ function publicUser(u) {
   return {id:u.id,nombre:u.nombre,apellido:u.apellido,correo:u.correo,rol:u.rol,estado:u.estado,id_parqueadero_asignado:u.id_parqueadero_asignado};
 }
 
+async function insertRefreshToken(db, userId) {
+  const token = randomToken();
+  await db.query(
+    `INSERT INTO refresh_tokens(id_usuario,token_hash,fecha_expiracion) VALUES($1,$2,now()+make_interval(days => $3))`,
+    [userId, hashToken(token), refreshDays()]
+  );
+  return token;
+}
+
 router.post('/register', authLimiter, async (req,res) => {
-  const {nombre,apellido,correo,contrasena} = req.body;
-  if (!nombre || !apellido || !correo || !contrasena || contrasena.length < 8)
+  const nombre = String(req.body.nombre||'').trim();
+  const apellido = String(req.body.apellido||'').trim();
+  const contrasena = typeof req.body.contrasena === 'string' ? req.body.contrasena : '';
+  if (!nombre || !apellido || !req.body.correo || contrasena.length < 8)
     return res.status(400).json({message:'Nombre, apellido, correo y contraseña de mínimo 8 caracteres son obligatorios'});
-  const correoNorm = String(correo).toLowerCase().trim();
-  if (!INSTITUTIONAL_EMAIL.test(correoNorm))
+  if (nombre.length > 80 || apellido.length > 80 || contrasena.length > 72)
+    return res.status(400).json({message:'Alguno de los datos excede la longitud permitida'});
+  const correoNorm = String(req.body.correo).toLowerCase().trim();
+  if (!INSTITUTIONAL_EMAIL.test(correoNorm) || correoNorm.length > 180)
     return res.status(400).json({message:'Debe registrarse con un correo institucional @usco.edu.co'});
   try {
     const hash = await bcrypt.hash(contrasena, 10);
@@ -32,14 +48,13 @@ router.post('/register', authLimiter, async (req,res) => {
     await withTransaction(async client => {
       const {rows} = await client.query(
         `INSERT INTO usuarios(nombre,apellido,correo,contrasena_hash,rol,estado,email_verificado)
-         VALUES($1,$2,$3,$4,'CONSULTOR','ACTIVO',false) RETURNING *`,
-        [nombre.trim(),apellido.trim(),correoNorm,hash]
+         VALUES($1,$2,$3,$4,'CONSULTOR','ACTIVO',false) RETURNING id`,
+        [nombre,apellido,correoNorm,hash]
       );
-      const tokenHash = await hashToken(rawToken);
       await client.query(
         `INSERT INTO email_verification_tokens(id_usuario,token_hash,fecha_expiracion)
          VALUES($1,$2,now()+interval '${VERIFICATION_TOKEN_HOURS} hours')`,
-        [rows[0].id, tokenHash]
+        [rows[0].id, hashToken(rawToken)]
       );
     });
     const link = `${process.env.FRONTEND_URL}/verify-email?token=${rawToken}`;
@@ -47,6 +62,7 @@ router.post('/register', authLimiter, async (req,res) => {
     res.status(201).json({message:'Cuenta creada. Revise su correo institucional para verificar la cuenta antes de iniciar sesión.'});
   } catch(e) {
     if (e.code==='23505') return res.status(409).json({message:'El correo ya está registrado'});
+    console.error('Error en registro:', e);
     res.status(500).json({message:'No fue posible registrar la cuenta'});
   }
 });
@@ -58,47 +74,44 @@ router.post('/login', authLimiter, async (req,res) => {
     const q = await client.query('SELECT * FROM usuarios WHERE correo=$1',[String(correo||'').toLowerCase().trim()]);
     if (!q.rowCount) return res.status(401).json({message:'Credenciales inválidas'});
     const u=q.rows[0];
-    if (u.estado==='INACTIVO') return res.status(403).json({message:'La cuenta está inactiva'});
+    if (u.estado!=='ACTIVO') return res.status(403).json({message:'La cuenta está inactiva'});
     if (u.locked_until && new Date(u.locked_until)>new Date()) return res.status(423).json({message:'Cuenta bloqueada temporalmente'});
-    if (!u.email_verificado) return res.status(403).json({message:'Debe verificar su correo antes de iniciar sesión. Revise su bandeja de entrada.'});
-    const ok=await bcrypt.compare(contrasena||'',u.contrasena_hash);
+    const ok=await bcrypt.compare(String(contrasena||''),u.contrasena_hash);
     if (!ok) {
       const attempts=u.failed_login_attempts+1;
       const locked=attempts>=5 ? new Date(Date.now()+15*60*1000) : null;
       await client.query('UPDATE usuarios SET failed_login_attempts=$1,locked_until=$2 WHERE id=$3',[locked?0:attempts,locked,u.id]);
       return res.status(401).json({message:locked?'Cuenta bloqueada por 15 minutos tras varios intentos fallidos':'Credenciales inválidas'});
     }
+    // Se verifica después de la contraseña para no revelar a terceros qué
+    // correos están registrados pero sin verificar.
+    if (!u.email_verificado) return res.status(403).json({message:'Debe verificar su correo antes de iniciar sesión. Revise su bandeja de entrada.'});
     await client.query('UPDATE usuarios SET failed_login_attempts=0,locked_until=NULL WHERE id=$1',[u.id]);
     const access=signAccessToken(u);
-    const refresh=randomRefreshToken();
-    const rh=await hashRefreshToken(refresh);
-    await client.query(`INSERT INTO refresh_tokens(id_usuario,token_hash,fecha_expiracion) VALUES($1,$2,now()+interval '7 days')`,[u.id,rh]);
+    const refresh=await insertRefreshToken(client,u.id);
     if(u.rol!=='CONSULTOR') await audit(client,u,'LOGIN','AUTENTICACIÓN','Inicio de sesión',req.ip);
     res.json({accessToken:access,refreshToken:refresh,user:publicUser(u)});
   } finally { client.release(); }
 });
 
-router.post('/verify-email', async (req,res) => {
+router.post('/verify-email', authLimiter, async (req,res) => {
   const {token} = req.body;
-  if (!token) return res.status(400).json({message:'Token requerido'});
-  // Nota: evt.id y u.id se alían explícitamente porque ambas tablas tienen
-  // columna "id"; sin alias, node-postgres sobrescribe con la última (u.id).
-  const {rows} = await pool.query(
-    `SELECT evt.id AS token_id, evt.token_hash, evt.id_usuario, u.rol
-     FROM email_verification_tokens evt JOIN usuarios u ON u.id=evt.id_usuario
-     WHERE evt.usado=false AND evt.fecha_expiracion>now()`
-  );
-  for (const row of rows) {
-    if (await compareToken(token, row.token_hash)) {
-      await withTransaction(async client => {
-        await client.query('UPDATE usuarios SET email_verificado=true WHERE id=$1',[row.id_usuario]);
-        await client.query('UPDATE email_verification_tokens SET usado=true,fecha_uso=now() WHERE id=$1',[row.token_id]);
-        await audit(client,{id:row.id_usuario,rol:row.rol},'VERIFICAR_EMAIL','AUTENTICACIÓN','Correo verificado',req.ip);
-      });
-      return res.json({ok:true});
-    }
-  }
-  res.status(400).json({message:'Token inválido o expirado'});
+  if (!token || typeof token !== 'string') return res.status(400).json({message:'Token requerido'});
+  const ok = await withTransaction(async client => {
+    // UPDATE ... RETURNING marca el token como usado de forma atómica: dos
+    // peticiones simultáneas con el mismo token no pueden consumirlo ambas.
+    const {rows} = await client.query(
+      `UPDATE email_verification_tokens SET usado=true,fecha_uso=now()
+       WHERE token_hash=$1 AND usado=false AND fecha_expiracion>now() RETURNING id_usuario`,
+      [hashToken(token)]
+    );
+    if (!rows.length) return false;
+    const u = (await client.query('UPDATE usuarios SET email_verificado=true WHERE id=$1 RETURNING id,rol',[rows[0].id_usuario])).rows[0];
+    await audit(client,u,'VERIFICAR_EMAIL','AUTENTICACIÓN','Correo verificado',req.ip);
+    return true;
+  });
+  if (!ok) return res.status(400).json({message:'Token inválido o expirado'});
+  res.json({ok:true});
 });
 
 router.post('/forgot-password', authLimiter, async (req,res) => {
@@ -108,13 +121,12 @@ router.post('/forgot-password', authLimiter, async (req,res) => {
   if (!correoNorm) return res.json(generic);
   const {rows} = await pool.query('SELECT * FROM usuarios WHERE correo=$1',[correoNorm]);
   const u = rows[0];
-  if (u && u.email_verificado) {
+  if (u && u.email_verificado && u.estado==='ACTIVO') {
     const rawToken = randomToken();
-    const tokenHash = await hashToken(rawToken);
     await pool.query(
       `INSERT INTO password_reset_tokens(id_usuario,token_hash,fecha_expiracion)
        VALUES($1,$2,now()+interval '${RESET_TOKEN_MINUTES} minutes')`,
-      [u.id, tokenHash]
+      [u.id, hashToken(rawToken)]
     );
     const link = `${process.env.FRONTEND_URL}/reset-password?token=${rawToken}`;
     await sendPasswordResetEmail(correoNorm, link);
@@ -124,82 +136,71 @@ router.post('/forgot-password', authLimiter, async (req,res) => {
 
 router.post('/reset-password', authLimiter, async (req,res) => {
   const {token,contrasena} = req.body;
-  if (!token || !contrasena || contrasena.length < 8)
+  if (!token || typeof token !== 'string' || typeof contrasena !== 'string' || contrasena.length < 8)
     return res.status(400).json({message:'Token y contraseña de mínimo 8 caracteres son obligatorios'});
-  const {rows} = await pool.query(
-    `SELECT prt.id AS token_id, prt.token_hash, prt.id_usuario, u.rol
-     FROM password_reset_tokens prt JOIN usuarios u ON u.id=prt.id_usuario
-     WHERE prt.usado=false AND prt.fecha_expiracion>now()`
-  );
-  for (const row of rows) {
-    if (await compareToken(token, row.token_hash)) {
-      const hash = await bcrypt.hash(contrasena, 10);
-      await withTransaction(async client => {
-        await client.query('UPDATE usuarios SET contrasena_hash=$1 WHERE id=$2',[hash,row.id_usuario]);
-        await client.query('UPDATE password_reset_tokens SET usado=true,fecha_uso=now() WHERE id=$1',[row.token_id]);
-        await client.query('UPDATE refresh_tokens SET revocado=true,fecha_revocacion=now() WHERE id_usuario=$1 AND revocado=false',[row.id_usuario]);
-        await audit(client,{id:row.id_usuario,rol:row.rol},'RESET_PASSWORD','AUTENTICACIÓN','Restablecimiento de contraseña',req.ip);
-      });
-      return res.json({ok:true});
-    }
-  }
-  res.status(400).json({message:'Token inválido o expirado'});
+  if (contrasena.length > 72) return res.status(400).json({message:'La contraseña no puede superar 72 caracteres'});
+  const hash = await bcrypt.hash(contrasena, 10);
+  const ok = await withTransaction(async client => {
+    const {rows} = await client.query(
+      `UPDATE password_reset_tokens SET usado=true,fecha_uso=now()
+       WHERE token_hash=$1 AND usado=false AND fecha_expiracion>now() RETURNING id_usuario`,
+      [hashToken(token)]
+    );
+    if (!rows.length) return false;
+    const userId = rows[0].id_usuario;
+    const u = (await client.query(
+      'UPDATE usuarios SET contrasena_hash=$1,failed_login_attempts=0,locked_until=NULL WHERE id=$2 RETURNING id,rol',
+      [hash,userId])).rows[0];
+    // Un enlace de recuperación invalida los demás pendientes y cierra todas las sesiones.
+    await client.query('UPDATE password_reset_tokens SET usado=true,fecha_uso=now() WHERE id_usuario=$1 AND usado=false',[userId]);
+    await client.query('UPDATE refresh_tokens SET revocado=true,fecha_revocacion=now() WHERE id_usuario=$1 AND revocado=false',[userId]);
+    await audit(client,u,'RESET_PASSWORD','AUTENTICACIÓN','Restablecimiento de contraseña',req.ip);
+    return true;
+  });
+  if (!ok) return res.status(400).json({message:'Token inválido o expirado'});
+  res.json({ok:true});
 });
 
-router.post('/refresh', async (req,res) => {
+router.post('/refresh', refreshLimiter, async (req,res) => {
   const {refreshToken}=req.body;
-  if(!refreshToken) return res.status(401).json({message:'Refresh token requerido'});
-  // rt.id se alía explícitamente: "SELECT rt.*,u.*" con ambas tablas teniendo
-  // columna "id" haría que node-postgres sobrescribiera rt.id con u.id.
-  const {rows}=await pool.query(
-    `SELECT rt.id AS token_id, rt.token_hash, rt.id_usuario, u.*
-     FROM refresh_tokens rt JOIN usuarios u ON u.id=rt.id_usuario
-     WHERE rt.revocado=false AND rt.fecha_expiracion>now()`
-  );
-  for (const row of rows) {
-    if(await compareRefreshToken(refreshToken,row.token_hash)) {
-      const next=randomRefreshToken();
-      const nh=await hashRefreshToken(next);
-      await withTransaction(async client=>{
-        await client.query('UPDATE refresh_tokens SET revocado=true,fecha_revocacion=now() WHERE id=$1',[row.token_id]);
-        await client.query(`INSERT INTO refresh_tokens(id_usuario,token_hash,fecha_expiracion) VALUES($1,$2,now()+interval '7 days')`,[row.id_usuario,nh]);
-      });
-      return res.json({accessToken:signAccessToken(row),refreshToken:next});
+  if(!refreshToken || typeof refreshToken !== 'string') return res.status(401).json({message:'Refresh token requerido'});
+  const tokenHash = hashToken(refreshToken);
+  const result = await withTransaction(async client => {
+    // Revocación atómica: si dos peticiones usan el mismo token a la vez, solo
+    // una obtiene la fila; la otra cae en la detección de reutilización.
+    const {rows} = await client.query(
+      `UPDATE refresh_tokens SET revocado=true,fecha_revocacion=now()
+       WHERE token_hash=$1 AND revocado=false AND fecha_expiracion>now() RETURNING id_usuario`,
+      [tokenHash]
+    );
+    if (rows.length) {
+      const u = (await client.query('SELECT * FROM usuarios WHERE id=$1',[rows[0].id_usuario])).rows[0];
+      // Una cuenta desactivada no debe poder renovar su sesión.
+      if (!u || u.estado!=='ACTIVO') return null;
+      return {accessToken:signAccessToken(u),refreshToken:await insertRefreshToken(client,u.id)};
     }
-  }
-  // Ningún token activo coincide: revisar si es un token ya revocado siendo
-  // reutilizado (posible robo de sesión) y, de ser así, cerrar todas las sesiones.
-  const {rows:revoked} = await pool.query(
-    `SELECT rt.id AS token_id, rt.token_hash, rt.id_usuario, u.rol
-     FROM refresh_tokens rt JOIN usuarios u ON u.id=rt.id_usuario WHERE rt.revocado=true`
-  );
-  for (const row of revoked) {
-    if (await compareRefreshToken(refreshToken, row.token_hash)) {
-      await withTransaction(async client => {
-        await client.query('UPDATE refresh_tokens SET revocado=true,fecha_revocacion=now() WHERE id_usuario=$1 AND revocado=false',[row.id_usuario]);
-        await audit(client,{id:row.id_usuario,rol:row.rol},'REFRESH_TOKEN_REUSE_DETECTED','SEGURIDAD','Posible robo de sesión: token de refresco reutilizado tras revocación',req.ip);
-      });
-      break;
+    // Ningún token activo coincide: si es uno ya revocado siendo reutilizado
+    // (posible robo de sesión) se cierran todas las sesiones del usuario.
+    const reused = (await client.query(
+      `SELECT rt.id_usuario,u.rol FROM refresh_tokens rt JOIN usuarios u ON u.id=rt.id_usuario
+       WHERE rt.token_hash=$1 AND rt.revocado=true LIMIT 1`,[tokenHash])).rows[0];
+    if (reused) {
+      await client.query('UPDATE refresh_tokens SET revocado=true,fecha_revocacion=now() WHERE id_usuario=$1 AND revocado=false',[reused.id_usuario]);
+      await audit(client,{id:reused.id_usuario,rol:reused.rol},'REFRESH_TOKEN_REUSE_DETECTED','SEGURIDAD','Posible robo de sesión: token de refresco reutilizado tras revocación',req.ip);
     }
-  }
-  res.status(401).json({message:'Refresh token inválido o revocado'});
+    return null;
+  });
+  if (!result) return res.status(401).json({message:'Refresh token inválido o revocado'});
+  res.json(result);
 });
 
 router.post('/logout', requireAuth, async (req,res)=>{
   const {refreshToken}=req.body;
-  if(refreshToken){
-    const {rows}=await pool.query(`SELECT id,token_hash FROM refresh_tokens WHERE id_usuario=$1 AND revocado=false`,[req.auth.sub]);
-    for(const r of rows){
-      if(await compareRefreshToken(refreshToken,r.token_hash)){
-        await pool.query('UPDATE refresh_tokens SET revocado=true,fecha_revocacion=now() WHERE id=$1',[r.id]);
-        break;
-      }
-    }
-  }
+  if(refreshToken && typeof refreshToken === 'string')
+    await pool.query('UPDATE refresh_tokens SET revocado=true,fecha_revocacion=now() WHERE id_usuario=$1 AND token_hash=$2 AND revocado=false',
+      [req.auth.sub,hashToken(refreshToken)]);
   if(req.auth.role!=='CONSULTOR')
-    await pool.query(`INSERT INTO auditoria(id_usuario,rol_usuario,accion,modulo,descripcion_detalle,ip)
-                      VALUES($1,$2,'LOGOUT','AUTENTICACIÓN','Cierre de sesión',$3)`,
-                      [req.auth.sub,req.auth.role,req.ip]);
+    await audit(pool,{id:req.auth.sub,rol:req.auth.role},'LOGOUT','AUTENTICACIÓN','Cierre de sesión',req.ip);
   res.json({ok:true});
 });
 
