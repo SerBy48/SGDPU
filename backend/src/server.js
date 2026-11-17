@@ -16,6 +16,12 @@ import occupationRoutes from './routes/occupations.js';
 import { pool } from './db.js';
 
 dotenv.config();
+// Sin JWT_SECRET, jsonwebtoken falla en cada login/petición autenticada; mejor
+// detener el arranque con un mensaje claro.
+if (!process.env.JWT_SECRET) {
+  console.error('Falta la variable de entorno JWT_SECRET (ver backend/.env.example).');
+  process.exit(1);
+}
 const app = express();
 const server = http.createServer(app);
 
@@ -29,8 +35,12 @@ app.use(express.json({ limit: '2mb' }));
 app.use(rateLimit({ windowMs: 60_000, max: 180 }));
 
 app.get('/api/health', async (_req,res) => {
-  const r = await pool.query('SELECT now() AS now');
-  res.json({ok:true, service:'sgdpu-api', database:r.rows[0].now});
+  try {
+    const r = await pool.query('SELECT now() AS now');
+    res.json({ok:true, service:'sgdpu-api', database:r.rows[0].now});
+  } catch {
+    res.status(503).json({ok:false, service:'sgdpu-api', message:'Base de datos no disponible'});
+  }
 });
 
 app.use('/api/auth', authRoutes);
@@ -49,6 +59,31 @@ const swaggerSpec = swaggerJsdoc({
   apis:[]
 });
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+// Errores no controlados de las rutas (ver utils/router.js). Los errores de
+// negocio llevan `status`; los de PostgreSQL más comunes por datos del cliente
+// se traducen a 4xx; el resto se registra y responde 500 sin filtrar detalles.
+const PG_CLIENT_ERRORS = {
+  '22P02': [400, 'Formato de dato inválido'],
+  '22003': [400, 'Valor numérico fuera de rango'],
+  '22001': [400, 'Alguno de los datos excede la longitud permitida'],
+  '23503': [409, 'El registro referenciado no existe o tiene datos asociados'],
+  '23505': [409, 'El registro ya existe'],
+  '23514': [409, 'La operación viola una restricción de los datos'],
+};
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  if (res.headersSent) return res.end();
+  if (err.status) return res.status(err.status).json({message:err.message, errores:err.errores});
+  const pgErr = PG_CLIENT_ERRORS[err.code];
+  if (pgErr) return res.status(pgErr[0]).json({message:pgErr[1]});
+  if (err.type === 'entity.too.large') return res.status(413).json({message:'La petición excede el tamaño permitido'});
+  if (err.type === 'entity.parse.failed') return res.status(400).json({message:'JSON inválido'});
+  console.error(`[${req.method} ${req.originalUrl}]`, err);
+  res.status(500).json({message:'Error interno del servidor'});
+});
+
+process.on('unhandledRejection', err => console.error('Promesa rechazada sin manejar:', err));
 
 io.on('connection', socket => {
   socket.on('join:parking', id => socket.join(`parking:${id}`));

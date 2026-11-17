@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../utils/router.js';
 import { pool, withTransaction } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { audit } from '../services/audit.js';
@@ -16,7 +16,9 @@ router.get('/', async (_req,res)=>{
 
 router.post('/', async (req,res)=>{
   const {id_parqueadero,descripcion,placa_opcional,cupo_opcional}=req.body;
-  if(!id_parqueadero||!descripcion?.trim()) return res.status(400).json({message:'Parqueadero y descripción son obligatorios'});
+  if(!id_parqueadero||typeof descripcion!=='string'||!descripcion.trim()) return res.status(400).json({message:'Parqueadero y descripción son obligatorios'});
+  if(!/^\d+$/.test(String(id_parqueadero))) return res.status(400).json({message:'Parqueadero inválido'});
+  if(descripcion.length>2000) return res.status(400).json({message:'La descripción no puede superar 2000 caracteres'});
   const result=await withTransaction(async client=>{
     const r=await client.query(`INSERT INTO incidencias(descripcion,placa_opcional,cupo_opcional,id_parqueadero,id_usuario)
       VALUES($1,$2,$3,$4,$5) RETURNING *`,
@@ -31,9 +33,16 @@ router.post('/', async (req,res)=>{
 router.patch('/:id/close', async (req,res)=>{
   if(req.auth.role!=='ADMIN') return res.status(403).json({message:'Solo el administrador puede cerrar incidencias'});
   const {comentario_resolucion}=req.body;
-  const r=await pool.query(`UPDATE incidencias SET estado='CERRADA',comentario_resolucion=$1 WHERE id=$2 RETURNING *`,[comentario_resolucion||null,req.params.id]);
-  if(!r.rowCount)return res.status(404).json({message:'Incidencia no encontrada'});
-  res.json(r.rows[0]);
+  if(!/^\d+$/.test(req.params.id)) return res.status(400).json({message:'Incidencia inválida'});
+  const result=await withTransaction(async client=>{
+    const r=await client.query(`UPDATE incidencias SET estado='CERRADA',comentario_resolucion=$1 WHERE id=$2 AND estado='ACTIVA' RETURNING *`,[comentario_resolucion||null,req.params.id]);
+    if(!r.rowCount) return null;
+    const u=(await client.query('SELECT * FROM usuarios WHERE id=$1',[req.auth.sub])).rows[0];
+    await audit(client,u,'CERRAR_INCIDENCIA','CUPOS',`Cerró la incidencia ${req.params.id}${comentario_resolucion?`: ${comentario_resolucion}`:''}`,req.ip);
+    return r.rows[0];
+  });
+  if(!result)return res.status(404).json({message:'Incidencia no encontrada o ya cerrada'});
+  res.json(result);
 });
 
 export default router;

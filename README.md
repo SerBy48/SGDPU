@@ -53,6 +53,16 @@ psql -U postgres -f schema.sql
 psql -U postgres -d sgdpu -f seed.sql
 ```
 
+### Migraciones
+
+`schema.sql` ya incluye todos los cambios para instalaciones nuevas. Sobre una base creada antes, aplicar en orden los archivos de `database/migrations/` que falten, por ejemplo:
+
+```bash
+docker exec -i sgdpu-postgres psql -U sgdpu -d sgdpu < migrations/008_revision_general.sql
+```
+
+> `008_revision_general.sql` cambia el hash de los tokens a SHA-256: tras aplicarla, todos los usuarios deben iniciar sesión de nuevo y los enlaces de verificación/recuperación pendientes dejan de ser válidos.
+
 ## 2. Backend
 
 ```bash
