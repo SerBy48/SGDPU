@@ -130,6 +130,9 @@ confirma o corrige.
   `$env:ALPR_PARIDAD_DIR="C:\sgdpu\sgdpu-placas-ocr\runs\paridad"; npm test`.
   En Windows, ejecutar desde una ruta con la unidad en mayúscula (`C:\...`):
   con `c:\...` Vitest carga dos veces sus módulos y falla.
+- Producción: `npm run build:nginx` y `deploy/nginx/sgdpu.conf` (HTTPS, caché
+  de modelos, CSP compatible con WebAssembly). Detalles en
+  `docs/IMPLEMENTACION.md` → «Lector de placas».
 - Licencias: el detector (Ultralytics YOLO) es AGPL-3.0; el OCR es MIT.
 
 ## Credenciales de demostración
