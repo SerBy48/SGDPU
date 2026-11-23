@@ -9,6 +9,9 @@ function App(){
  if(!user)return <Routes><Route path="/verify-email" element={<VerifyEmail/>}/><Route path="/reset-password" element={<ResetPassword/>}/><Route path="*" element={<Login onLogin={login}/>}/></Routes>;
  const allowedAdmin=user.rol==='ADMIN';
  return <Layout user={user} onLogout={logout} resetKey={loc.pathname}><Routes>
+  {/* La raíz y /login (p. ej. un marcador guardado) llevan al inicio de la sesión activa. */}
+  <Route path="/" element={<Navigate to="/dashboard" replace/>}/>
+  <Route path="/login" element={<Navigate to="/dashboard" replace/>}/>
   <Route path="/dashboard" element={<Dashboard user={user}/>}/>
   <Route path="/parqueaderos" element={<Parking user={user}/>}/>
   {allowedAdmin&&<><Route path="/porteros" element={<Porteros/>}/><Route path="/gestion-parqueaderos" element={<Parkings/>}/><Route path="/historial" element={<History/>}/><Route path="/estadisticas" element={<Stats/>}/><Route path="/auditoria" element={<Audit/>}/></>}
