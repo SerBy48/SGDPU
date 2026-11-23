@@ -107,6 +107,29 @@ npm run dev
 
 Aplicación: http://localhost:5173
 
+### Lector de placas (cámara)
+
+En el modal de ENTRADA, el portero puede leer la placa con la cámara del
+celular. La lectura corre en el propio navegador (`src/alpr/`: detector YOLO11n
+y OCR fast-plate-ocr con ONNX Runtime Web, en un Web Worker): la imagen nunca
+sale del dispositivo y al backend solo llega el texto. El sistema prellena el
+campo y muestra la confianza (verde, ámbar o rojo); el portero siempre
+confirma o corrige.
+
+- Los modelos están en `frontend/public/models/` (con versión en el nombre y
+  `manifest.json` con su sha256 y el umbral de confianza). La primera vez se
+  descargan ~15,5 MB y el motor WASM ~3,8 MB comprimido; después quedan en caché.
+- La cámara solo funciona con HTTPS o en `localhost`. Para probar desde un
+  celular en la misma red: `npm run dev:movil` (HTTPS autofirmado; la API pasa
+  por el proxy de Vite) y abrir `https://<IP-del-PC>:5173`, aceptando el aviso
+  del certificado.
+- Pruebas: `npm test`. La paridad con el lector de Python se mide con las
+  referencias de `exportar_referencias.py` (proyecto `sgdpu-placas-ocr`):
+  `$env:ALPR_PARIDAD_DIR="C:\sgdpu\sgdpu-placas-ocr\runs\paridad"; npm test`.
+  En Windows, ejecutar desde una ruta con la unidad en mayúscula (`C:\...`):
+  con `c:\...` Vitest carga dos veces sus módulos y falla.
+- Licencias: el detector (Ultralytics YOLO) es AGPL-3.0; el OCR es MIT.
+
 ## Credenciales de demostración
 
 > Son cuentas locales de desarrollo creadas por `seed.sql`. Cambiarlas antes de cualquier despliegue real.

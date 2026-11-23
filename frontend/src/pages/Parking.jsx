@@ -3,11 +3,16 @@ const OCUPANTE_VACIO={nombreOcupante:'',codigoCarne:'',placa:'',tipoPersona:'EST
 const VEHICULO_LABEL={CARRO:'Carro',MOTO:'Moto'};
 // Restricción de vehículos del parqueadero según los cupos que tiene.
 const tipoParqueadero=p=>p.espacios_carro&&!p.espacios_moto?{label:'Solo carros',cls:'chip-amber'}:p.espacios_moto&&!p.espacios_carro?{label:'Solo motos',cls:'chip-purple'}:{label:'Carros y motos',cls:'chip-neutral'};
+// Socket.IO: con VITE_API_URL relativa (/api, p. ej. en dev:movil) se usa el mismo origen.
+const API_URL=import.meta.env.VITE_API_URL;
+const SOCKET_URL=API_URL?.startsWith('/')?undefined:(API_URL?.replace('/api','')||'http://localhost:4000');
 const TIPO_PERSONA_LABEL={ESTUDIANTE:'Estudiante',ADMINISTRATIVO:'Administrativo',DOCENTE:'Docente'};
 export default function Parking({user}){
  const [parks,setParks]=useState([]),[selected,setSelected]=useState(null),[detail,setDetail]=useState(null),[slot,setSlot]=useState(null),[modal,setModal]=useState(null),[msg,setMsg]=useState('');
  const [ocupante,setOcupante]=useState(OCUPANTE_VACIO);
  const [intentoSubmit,setIntentoSubmit]=useState(false);
+ // Sugerencia del lector de placas ({sugerida,confianza,versionModelos}); viaja junto a la placa confirmada.
+ const [lecturaPlaca,setLecturaPlaca]=useState(null);
  const erroresOcupante={
   nombreOcupante:!ocupante.nombreOcupante.trim()?'El nombre es obligatorio.':null,
   codigoCarne:(ocupante.tipoPersona==='ESTUDIANTE'&&!ocupante.codigoCarne.trim())?'El código de carné es obligatorio para estudiantes.':null,
@@ -21,7 +26,7 @@ export default function Parking({user}){
  useEffect(()=>{
   load();
   // El socket exige el access token; se lee en cada (re)conexión porque rota.
-  const s=io(import.meta.env.VITE_API_URL?.replace('/api','')||'http://localhost:4000',{auth:cb=>cb({token:localStorage.getItem('sgdpu_access')})});
+  const s=io(SOCKET_URL,{auth:cb=>cb({token:localStorage.getItem('sgdpu_access')})});
   s.on('parking:update',()=>load());
   // Si el token venció, el sondeo de abajo lo renueva; se reintenta la conexión.
   let retry=null;
@@ -48,13 +53,13 @@ export default function Parking({user}){
   if(!slot)return;
   if(type==='ENTRADA'&&!ocupanteCompleto){setIntentoSubmit(true);return}
   try{
-   const payload={sectionId:slot.id,type,...(type==='ENTRADA'?ocupante:{})};
+   const payload={sectionId:slot.id,type,...(type==='ENTRADA'?{...ocupante,...(lecturaPlaca?{lecturaPlaca}:{})}:{})};
    const r=await api.post(`/parking/${selected.id}/movement`,payload);
    setDetail(r.data);setMsg(`Entrada/salida registrada en ${slot.nombre}`);setModal(null);setSlot(null);
-   setOcupante(OCUPANTE_VACIO);setIntentoSubmit(false);
+   setOcupante(OCUPANTE_VACIO);setIntentoSubmit(false);setLecturaPlaca(null);
   }catch(e){setMsg(e.response?.data?.message||'No fue posible registrar el movimiento');setModal(null)}
  };
- const abrirEntrada=()=>{setOcupante({...OCUPANTE_VACIO,tipoVehiculo:slot.tipo_vehiculo||'CARRO'});setIntentoSubmit(false);setModal('ENTRADA')};
+ const abrirEntrada=()=>{setOcupante({...OCUPANTE_VACIO,tipoVehiculo:slot.tipo_vehiculo||'CARRO'});setIntentoSubmit(false);setLecturaPlaca(null);setModal('ENTRADA')};
  const mobile=useIsMobile();
  const isPortero=user.rol==='PORTERO';
  const ownParking=isPortero&&selected&&user.id_parqueadero_asignado===selected.id;
@@ -76,7 +81,7 @@ export default function Parking({user}){
   <div className="field"><label className="label">Tipo de persona</label><div className="row" style={{gap:14}}>{Object.entries(TIPO_PERSONA_LABEL).map(([v,l])=><label key={v} className="row" style={{gap:4}}><input type="radio" name="tipoPersona" checked={ocupante.tipoPersona===v} onChange={()=>setOcupante({...ocupante,tipoPersona:v})}/> {l}</label>)}</div></div>
   <div className="field"><label className="label">Código de carné{ocupante.tipoPersona!=='ESTUDIANTE'&&' (opcional)'}</label><input className="input" required={ocupante.tipoPersona==='ESTUDIANTE'} maxLength={40} value={ocupante.codigoCarne} onChange={e=>setOcupante({...ocupante,codigoCarne:sanitizeDigits(e.target.value)})}/>{intentoSubmit&&erroresOcupante.codigoCarne&&<div className="small" style={{color:'var(--crimson)',marginTop:4}}>{erroresOcupante.codigoCarne}</div>}</div>
   <div className="field"><span className="label">Tipo de vehículo</span><div className="row"><span className="chip chip-blue">{VEHICULO_LABEL[ocupante.tipoVehiculo]}</span><span className="small muted">El cupo {slot?.nombre} es exclusivo para {ocupante.tipoVehiculo==='MOTO'?'motos':'carros'}.</span></div></div>
-  <PlateCapture value={ocupante.placa} tipoVehiculo={ocupante.tipoVehiculo} error={intentoSubmit||ocupante.placa.length===6?erroresOcupante.placa:null} onChange={placa=>setOcupante({...ocupante,placa})}/>
+  <PlateCapture value={ocupante.placa} tipoVehiculo={ocupante.tipoVehiculo} error={intentoSubmit||ocupante.placa.length===6?erroresOcupante.placa:null} onChange={placa=>setOcupante(o=>({...o,placa}))} onLectura={setLecturaPlaca}/>
  </div>}
  <div className="row" style={{justifyContent:'flex-end',marginTop:18,position:'sticky',bottom:-18,background:'var(--card)',padding:'12px 0',borderTop:'1px solid var(--border)'}}><button className="btn btn-ghost" onClick={()=>{setModal(null);setOcupante(OCUPANTE_VACIO);setIntentoSubmit(false)}}>Cancelar</button><button className={modal==='ENTRADA'?'btn btn-primary':'btn btn-danger'} onClick={()=>move(modal)}>Confirmar</button></div>
  </Modal>}
