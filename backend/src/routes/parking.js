@@ -9,6 +9,21 @@ const router=Router();
 const TIPOS_PERSONA=['ESTUDIANTE','ADMINISTRATIVO','DOCENTE'];
 const TIPOS_VEHICULO=['CARRO','MOTO'];
 
+// Sugerencia del lector de placas del frontend: {sugerida, confianza, versionModelos}.
+// Es solo una métrica (la placa autoritativa es la que confirmó el portero): si
+// llega mal formada se ignora y la entrada se registra igual.
+export function lecturaPlacaValida(l){
+  if(!l || typeof l!=='object' || Array.isArray(l)) return null;
+  if(typeof l.sugerida!=='string' || typeof l.versionModelos!=='string') return null;
+  const sugerida=l.sugerida.trim().toUpperCase();
+  const version=l.versionModelos.trim();
+  const confianza=typeof l.confianza==='number' ? l.confianza : NaN;
+  if(!/^[A-Z0-9]{0,6}$/.test(sugerida)) return null;
+  if(!Number.isFinite(confianza) || confianza<0 || confianza>1) return null;
+  if(!/^[\w.-]{1,20}$/.test(version)) return null;
+  return {sugerida, confianza:Math.round(confianza*1000)/1000, version};
+}
+
 export async function snapshot(id, db=pool) {
   // 'ocupada'/'tipo_vehiculo_actual' son seguros para todos los roles (incluido
   // CONSULTOR) y para la difusión por Socket.IO; la identidad del ocupante
@@ -72,6 +87,7 @@ router.post('/:id/movement', requireAuth, requireRole('PORTERO'), async (req,res
   const placa=String(req.body.placa||'').trim().toUpperCase();
   const tipoPersona=TIPOS_PERSONA.includes(req.body.tipoPersona) ? req.body.tipoPersona : 'ESTUDIANTE';
   const tipoVehiculo=req.body.tipoVehiculo;
+  const lectura=type==='ENTRADA' ? lecturaPlacaValida(req.body.lecturaPlaca) : null;
   if(type==='ENTRADA') {
     if(!nombreOcupante || !placa) return res.status(400).json({message:'Nombre y placa del ocupante son obligatorios'});
     if(!isAlphabeticName(nombreOcupante)) return res.status(400).json({message:'El nombre solo puede contener letras y espacios'});
@@ -124,9 +140,11 @@ router.post('/:id/movement', requireAuth, requireRole('PORTERO'), async (req,res
 
       let anomalia='';
       if(type==='ENTRADA') {
-        await client.query(`INSERT INTO ocupaciones(id_parqueadero,id_seccion,nombre_ocupante,codigo_carne,tipo_persona,placa,tipo_vehiculo,id_movimiento_entrada)
-                            VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [req.params.id,sectionId,nombreOcupante,codigoCarne||null,tipoPersona,placa,tipoVehiculo,mov.id]);
+        await client.query(`INSERT INTO ocupaciones(id_parqueadero,id_seccion,nombre_ocupante,codigo_carne,tipo_persona,placa,tipo_vehiculo,id_movimiento_entrada,
+                              placa_sugerida,confianza_lectura,version_modelos)
+                            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [req.params.id,sectionId,nombreOcupante,codigoCarne||null,tipoPersona,placa,tipoVehiculo,mov.id,
+           lectura?.sugerida??null,lectura?.confianza??null,lectura?.version??null]);
       } else {
         const closed=await client.query(
           `UPDATE ocupaciones SET estado='FINALIZADA',fecha_fin=now(),id_movimiento_salida=$1

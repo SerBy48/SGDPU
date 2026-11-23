@@ -8,7 +8,7 @@ const router=Router();
 function maskOccupant(row, role) {
   if (!row) return row;
   if (role==='CONSULTOR') {
-    const {nombre_ocupante,codigo_carne,placa,...rest} = row;
+    const {nombre_ocupante,codigo_carne,placa,placa_sugerida,confianza_lectura,version_modelos,...rest} = row;
     return rest;
   }
   return row;

@@ -61,6 +61,8 @@ psql -U postgres -d sgdpu -f seed.sql
 docker exec -i sgdpu-postgres psql -U sgdpu -d sgdpu < migrations/008_revision_general.sql
 ```
 
+> `009_lectura_placa.sql` agrega a `ocupaciones` lo que sugirió el lector de placas (`placa_sugerida`, `confianza_lectura`, `version_modelos`) y las incluye en el trigger de inmutabilidad. Es idempotente.
+
 > `008_revision_general.sql` cambia el hash de los tokens a SHA-256: tras aplicarla, todos los usuarios deben iniciar sesión de nuevo y los enlaces de verificación/recuperación pendientes dejan de ser válidos.
 
 ## 2. Backend

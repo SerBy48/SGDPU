@@ -59,6 +59,43 @@ router.get('/stats', async (req,res)=>{
 
 router.get('/report-data', async (req,res)=>res.json(await reportRows(req)));
 
+// Lector de placas: cuántas sugerencias acepta el portero sin corregir. Solo
+// cuentan las entradas en que se usó el lector (placa_sugerida no nula; '' =
+// el lector no leyó nada). Filtros: year, month (hora de Bogotá), parking.
+const LOCAL_OCUPACION=`(o.fecha_inicio AT TIME ZONE '${TZ}')`;
+const AGREGADO_LECTURAS=`COUNT(*)::int lecturas,
+ COUNT(*) FILTER(WHERE o.placa_sugerida=o.placa)::int aceptadas,
+ COUNT(*) FILTER(WHERE o.placa_sugerida<>'' AND o.placa_sugerida<>o.placa)::int corregidas,
+ COUNT(*) FILTER(WHERE o.placa_sugerida='')::int sin_lectura,
+ ROUND(AVG(o.confianza_lectura) FILTER(WHERE o.placa_sugerida<>''),3)::float confianza_promedio`;
+const RANGO_CONFIANZA=`CASE WHEN o.confianza_lectura<0.5 THEN '< 0,50' WHEN o.confianza_lectura<0.8 THEN '0,50–0,79'
+ WHEN o.confianza_lectura<0.9 THEN '0,80–0,89' WHEN o.confianza_lectura<0.95 THEN '0,90–0,94' ELSE '≥ 0,95' END`;
+
+router.get('/lecturas-placa', async (req,res)=>{
+ const year=Number(req.query.year)||null, month=Number(req.query.month)||0;
+ const parking=/^\d+$/.test(String(req.query.parking||''))?Number(req.query.parking):null;
+ const params=[]; const conds=[`o.placa_sugerida IS NOT NULL`];
+ if(year){params.push(year);conds.push(`EXTRACT(YEAR FROM ${LOCAL_OCUPACION})=$${params.length}`);}
+ if(month){params.push(month);conds.push(`EXTRACT(MONTH FROM ${LOCAL_OCUPACION})=$${params.length}`);}
+ if(parking){params.push(parking);conds.push(`o.id_parqueadero=$${params.length}`);}
+ const where=conds.join(' AND ');
+ const periodo=conds.slice(1).join(' AND ')||'true';
+ const q=sql=>pool.query(sql,params).then(r=>r.rows);
+ const [[resumen],[uso],porDia,porVehiculo,porParqueadero,porVersion,porConfianza,correcciones]=await Promise.all([
+  q(`SELECT ${AGREGADO_LECTURAS} FROM ocupaciones o WHERE ${where}`),
+  q(`SELECT COUNT(*)::int entradas FROM ocupaciones o WHERE ${periodo}`),
+  q(`SELECT DATE(${LOCAL_OCUPACION}) fecha,${AGREGADO_LECTURAS} FROM ocupaciones o WHERE ${where} GROUP BY 1 ORDER BY 1`),
+  q(`SELECT o.tipo_vehiculo,${AGREGADO_LECTURAS} FROM ocupaciones o WHERE ${where} GROUP BY 1 ORDER BY 1`),
+  q(`SELECT p.nombre parqueadero,${AGREGADO_LECTURAS} FROM ocupaciones o JOIN parqueaderos p ON p.id=o.id_parqueadero WHERE ${where} GROUP BY p.id,p.nombre ORDER BY lecturas DESC`),
+  q(`SELECT o.version_modelos,${AGREGADO_LECTURAS} FROM ocupaciones o WHERE ${where} GROUP BY 1 ORDER BY 1`),
+  q(`SELECT ${RANGO_CONFIANZA} rango,MIN(o.confianza_lectura)::float desde,${AGREGADO_LECTURAS} FROM ocupaciones o WHERE ${where} AND o.placa_sugerida<>'' GROUP BY 1 ORDER BY desde`),
+  q(`SELECT o.fecha_inicio,p.nombre parqueadero,o.tipo_vehiculo,o.placa_sugerida,o.placa,o.confianza_lectura::float confianza,o.version_modelos
+     FROM ocupaciones o JOIN parqueaderos p ON p.id=o.id_parqueadero
+     WHERE ${where} AND o.placa_sugerida<>'' AND o.placa_sugerida<>o.placa ORDER BY o.fecha_inicio DESC LIMIT 20`),
+ ]);
+ res.json({resumen:{...resumen,entradas:uso.entradas},porDia,porVehiculo,porParqueadero,porVersion,porConfianza,correcciones});
+});
+
 // ---------- Paleta e identidad visual compartida por Excel y PDF ----------
 // Los valores sin '#' (red/gold/green/lightRow/border) son para ARGB de
 // ExcelJS ('FF'+valor); los que terminan en Hex/Rgb llevan '#' para pdfkit.

@@ -120,7 +120,15 @@ CREATE TABLE ocupaciones (
   id_movimiento_salida BIGINT REFERENCES movimientos(id) ON DELETE RESTRICT,
   fecha_inicio TIMESTAMPTZ NOT NULL DEFAULT now(),
   fecha_fin TIMESTAMPTZ,
-  estado occupation_status NOT NULL DEFAULT 'ACTIVA'
+  estado occupation_status NOT NULL DEFAULT 'ACTIVA',
+  -- Lector de placas (migración 009): NULL = no se usó; '' = no leyó nada;
+  -- distinta de "placa" = el portero corrigió la lectura.
+  placa_sugerida VARCHAR(6),
+  confianza_lectura NUMERIC(4,3),
+  version_modelos VARCHAR(20),
+  CONSTRAINT chk_ocupaciones_lectura CHECK (
+    (placa_sugerida IS NULL OR placa_sugerida ~ '^[A-Z0-9]{0,6}$')
+    AND (confianza_lectura IS NULL OR confianza_lectura BETWEEN 0 AND 1))
 );
 
 CREATE TABLE refresh_tokens (
@@ -220,6 +228,9 @@ BEGIN
      OR NEW.placa <> OLD.placa OR NEW.tipo_vehiculo <> OLD.tipo_vehiculo
      OR NEW.id_movimiento_entrada <> OLD.id_movimiento_entrada
      OR NEW.fecha_inicio <> OLD.fecha_inicio
+     OR NEW.placa_sugerida IS DISTINCT FROM OLD.placa_sugerida
+     OR NEW.confianza_lectura IS DISTINCT FROM OLD.confianza_lectura
+     OR NEW.version_modelos IS DISTINCT FROM OLD.version_modelos
      OR NEW.id_movimiento_salida IS NULL OR NEW.fecha_fin IS NULL THEN
     RAISE EXCEPTION 'Solo se permite cerrar una ocupación activa (transición a FINALIZADA)';
   END IF;
