@@ -15,7 +15,9 @@ const NIVEL={
 };
 const esperar=ms=>new Promise(r=>setTimeout(r,ms));
 
-export default function PlateCapture({value,onChange,tipoVehiculo,error:plateErr,onLectura}){
+// onLectura(l): {sugerida, confianza, versionModelos} para enviar al backend.
+// onDetalle(r): resultado completo del lector (tiempos, votos...), opcional (banco de pruebas).
+export default function PlateCapture({value,onChange,tipoVehiculo,error:plateErr,onLectura,onDetalle}){
  const [camara,setCamara]=useState('apagada'); // apagada | abriendo | activa
  const [modelo,setModelo]=useState(lectorDisponible()?'cargando':'no-disponible'); // cargando | lento | listo | error | no-disponible
  const [leyendo,setLeyendo]=useState(false);
@@ -94,6 +96,7 @@ export default function PlateCapture({value,onChange,tipoVehiculo,error:plateErr
    setLectura(r);
    if(r.formatoValido&&r.placa)onChange(sanitizePlate(r.placa));
    onLectura?.({sugerida:r.formatoValido?r.placa:'',confianza:r.confianza,versionModelos:r.versionModelos});
+   onDetalle?.({...r,recorte:undefined,resolucion:`${w}x${h}`});
   }catch{
    if(!montado.current)return;
    setLectura(null);
