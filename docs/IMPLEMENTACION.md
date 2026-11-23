@@ -82,3 +82,36 @@ verificación sha256 de los modelos bajo la CSP.
 Los modelos llevan la versión en el nombre y el frontend registra
 `versionModelos` en cada lectura, de modo que Estadísticas compara versiones con
 datos de campo. Para publicar una versión nueva ver «Mejora continua» abajo.
+
+### Mejora continua (F6)
+
+Ciclo para mejorar el lector con datos de campo. Las herramientas de Python
+están en el proyecto `sgdpu-placas-ocr`; las de JavaScript, en `frontend/`.
+
+1. **Medir.** Estadísticas → Lector de placas: aceptadas sin corrección, por
+   vehículo, parqueadero, rango de confianza y versión de modelos; «Exportar
+   lecturas (CSV)» descarga todas las lecturas del periodo.
+2. **Recalibrar U** (si hay errores en verde o demasiados ámbar):
+   `python calibrar_campo.py sgdpu_lecturas_placa.csv` muestra, por umbral,
+   cuántas lecturas saldrían en verde y cuántos errores pasarían, y recomienda
+   el menor U con ≤ 1 % de errores en verde (`--max-error`). Requiere ≥ 200
+   lecturas para ser confiable. «Acierto» = el portero no corrigió, que es una
+   aproximación. También lista las confusiones de caracteres más frecuentes.
+3. **Reentrenar** (si el problema es del modelo: un carácter, un tipo de placa
+   o una condición de luz): `train.py detector` / `ocr_placas.py entrenar`,
+   medir con `evaluate.py` y regenerar las referencias de paridad con
+   `exportar_referencias.py`. SGDPU **no guarda imágenes**; usar recortes de
+   campo para reentrenar requiere antes una decisión y una política de datos
+   de la universidad (Ley 1581).
+4. **Publicar.** En `frontend/`:
+   `node scripts/publicar-modelos.mjs --version <AAAA-MM-DD> --detector <.onnx> --ocr <.onnx> [--umbral U]`.
+   Comprueba que los modelos corran con el motor y tengan las entradas y
+   salidas esperadas, copia los archivos con la versión en el nombre, calcula
+   el sha256, actualiza `manifest.json` y borra los de la versión anterior
+   (`--conservar` para dejarlos). Solo el umbral: `--umbral U` sin modelos.
+5. **Verificar y desplegar.** `npm test` con `ALPR_PARIDAD_DIR` (paridad con
+   las referencias nuevas) y `npm run prueba:degradacion`; luego
+   `npm run build:nginx` y desplegar. Como los nombres cambian, los celulares
+   descargan los modelos nuevos una vez.
+6. **Comparar.** En Estadísticas, la tabla «Por versión de modelos» compara la
+   versión nueva con la anterior con datos reales.

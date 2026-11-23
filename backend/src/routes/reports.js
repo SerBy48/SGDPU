@@ -71,15 +71,40 @@ const AGREGADO_LECTURAS=`COUNT(*)::int lecturas,
 const RANGO_CONFIANZA=`CASE WHEN o.confianza_lectura<0.5 THEN '< 0,50' WHEN o.confianza_lectura<0.8 THEN '0,50–0,79'
  WHEN o.confianza_lectura<0.9 THEN '0,80–0,89' WHEN o.confianza_lectura<0.95 THEN '0,90–0,94' ELSE '≥ 0,95' END`;
 
-router.get('/lecturas-placa', async (req,res)=>{
+function filtroLecturas(req){
  const year=Number(req.query.year)||null, month=Number(req.query.month)||0;
  const parking=/^\d+$/.test(String(req.query.parking||''))?Number(req.query.parking):null;
  const params=[]; const conds=[`o.placa_sugerida IS NOT NULL`];
  if(year){params.push(year);conds.push(`EXTRACT(YEAR FROM ${LOCAL_OCUPACION})=$${params.length}`);}
  if(month){params.push(month);conds.push(`EXTRACT(MONTH FROM ${LOCAL_OCUPACION})=$${params.length}`);}
  if(parking){params.push(parking);conds.push(`o.id_parqueadero=$${params.length}`);}
- const where=conds.join(' AND ');
- const periodo=conds.slice(1).join(' AND ')||'true';
+ return {params, where:conds.join(' AND '), periodo:conds.slice(1).join(' AND ')||'true'};
+}
+
+// Todas las lecturas del periodo en CSV, para recalibrar el umbral y analizar
+// errores con calibrar_campo.py (proyecto sgdpu-placas-ocr). Incluye placas:
+// solo ADMIN (igual que los demás reportes).
+const celdaCsv=v=>{
+ let s=v==null?'':String(v);
+ if(/^[=+\-@]/.test(s)) s=`'${s}`;            // evita fórmulas al abrirlo en Excel
+ return /[",\n;]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;
+};
+router.get('/lecturas-placa/csv', async (req,res)=>{
+ const {params,where}=filtroLecturas(req);
+ const {rows}=await pool.query(
+  `SELECT to_char(${LOCAL_OCUPACION},'YYYY-MM-DD HH24:MI') fecha,p.nombre parqueadero,o.tipo_vehiculo,
+     o.placa_sugerida,o.placa,(o.placa_sugerida=o.placa) aceptada,o.confianza_lectura::float confianza,o.version_modelos
+   FROM ocupaciones o JOIN parqueaderos p ON p.id=o.id_parqueadero
+   WHERE ${where} ORDER BY o.fecha_inicio`,params);
+ const cols=['fecha','parqueadero','tipo_vehiculo','placa_sugerida','placa','aceptada','confianza','version_modelos'];
+ const csv=[cols.join(','),...rows.map(r=>cols.map(c=>celdaCsv(c==='aceptada'?(r[c]?1:0):r[c])).join(','))].join('\n');
+ res.setHeader('Content-Type','text/csv; charset=utf-8');
+ res.setHeader('Content-Disposition','attachment; filename="sgdpu_lecturas_placa.csv"');
+ res.send('﻿'+csv+'\n');
+});
+
+router.get('/lecturas-placa', async (req,res)=>{
+ const {params,where,periodo}=filtroLecturas(req);
  const q=sql=>pool.query(sql,params).then(r=>r.rows);
  const [[resumen],[uso],porDia,porVehiculo,porParqueadero,porVersion,porConfianza,correcciones]=await Promise.all([
   q(`SELECT ${AGREGADO_LECTURAS} FROM ocupaciones o WHERE ${where}`),

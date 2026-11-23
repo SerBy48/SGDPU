@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react';
 import {LineChart,Line,XAxis,YAxis,Tooltip,CartesianGrid,ResponsiveContainer,ReferenceLine} from 'recharts';
 import api from '../services/api';
+import {downloadFile} from '../utils/download';
 
 // Métricas del lector de placas (solo ADMIN): qué tanto acepta el portero la
 // placa sugerida por la cámara sin corregirla. Meta del piloto: >= 90 %.
@@ -26,6 +27,13 @@ function Tabla({titulo,filas,clave,etiqueta=v=>v}){
 export default function LectorPlacasStats({year,month}){
  const [data,setData]=useState(null);
  const [error,setError]=useState(false);
+ const [exportando,setExportando]=useState(false);
+ const exportar=async()=>{
+  setExportando(true);
+  try{await downloadFile(api,'/reports/lecturas-placa/csv',{year:year||undefined,month:month||undefined},'sgdpu_lecturas_placa.csv')}
+  catch{alert('No fue posible generar el archivo.')}
+  finally{setExportando(false)}
+ };
  useEffect(()=>{
   let cancelled=false;
   setError(false);
@@ -38,7 +46,7 @@ export default function LectorPlacasStats({year,month}){
  const tasa=r?pct(r.aceptadas,r.lecturas):null;
  const dias=(data?.porDia||[]).map(d=>({...d,pct:pct(d.aceptadas,d.lecturas)}));
  return <div className="card" style={{marginTop:16}}>
-  <div className="card-head"><h3>Lector de placas</h3>{r?.lecturas>0&&<span className={`chip ${tasa>=META?'chip-green':'chip-amber'}`}>{tasa>=META?'Cumple':'Bajo'} la meta del {META} %</span>}</div>
+  <div className="card-head"><h3>Lector de placas</h3>{r?.lecturas>0&&<div className="row" style={{gap:8}}><span className={`chip ${tasa>=META?'chip-green':'chip-amber'}`}>{tasa>=META?'Cumple':'Bajo'} la meta del {META} %</span><button className="btn btn-outline" disabled={exportando} onClick={exportar}>{exportando?'Generando…':'Exportar lecturas (CSV)'}</button></div>}</div>
   <div className="card-body">
    {error&&<div className="alert alert-danger">No fue posible cargar las métricas del lector.</div>}
    {!error&&r&&r.lecturas===0&&<div className="empty">Aún no hay entradas registradas con el lector de placas en este periodo.</div>}
